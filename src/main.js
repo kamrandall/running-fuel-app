@@ -1,6 +1,7 @@
 import {
   BUILT_IN_FUELS,
   GUT_TOLERANCE_OPTIONS,
+  HYROX_STATIONS,
   PACE_OPTIONS,
   RUN_TYPE_LABELS,
   STORAGE_KEYS,
@@ -8,6 +9,7 @@ import {
 } from "./constants.js";
 import {
   buildGutTrainingPlan,
+  buildHyroxPlan,
   buildRunPlan,
   calculateDailyMacros,
   calculateSweatRate,
@@ -17,18 +19,29 @@ import {
 } from "./calculations.js";
 
 const calculatorForm = document.querySelector("#calculator-form");
+const hyroxForm = document.querySelector("#hyrox-form");
 const sweatForm = document.querySelector("#sweat-form");
 const gutForm = document.querySelector("#gut-form");
 const macroForm = document.querySelector("#macro-form");
 const fuelSelect = document.querySelector("#fuel-select");
+const hyroxFuelSelect = document.querySelector("#hyrox-fuel-select");
 const sweatRateSelect = document.querySelector("#sweat-rate-select");
+const hyroxSweatRateSelect = document.querySelector("#hyrox-sweat-rate-select");
 const gutToleranceSelect = document.querySelector("#gut-tolerance-select");
 const paceSelect = document.querySelector("#pace-select");
+const hyroxPaceSelect = document.querySelector("#hyrox-pace-select");
 const durationDisplay = document.querySelector("#duration-display");
+const hyroxDurationDisplay = document.querySelector("#hyrox-duration-display");
 const heatExposureField = document.querySelector("#heat-exposure-field");
-const tabButtons = document.querySelectorAll(".tab-button");
+const appTabButtons = document.querySelectorAll(".app-tab-button");
+const runningApp = document.querySelector("#running-app");
+const hyroxApp = document.querySelector("#hyrox-app");
+const tabButtons = calculatorForm.querySelectorAll(".segment-tabs .tab-button");
 const professionalFuelPanel = document.querySelector("#professional-fuel-panel");
 const customFuelPanel = document.querySelector("#custom-fuel-panel");
+const hyroxFuelTabButtons = document.querySelectorAll(".hyrox-fuel-tab-button");
+const hyroxProfessionalFuelPanel = document.querySelector("#hyrox-professional-fuel-panel");
+const hyroxCustomFuelPanel = document.querySelector("#hyrox-custom-fuel-panel");
 
 const sessionSummary = document.querySelector("#session-summary");
 const safetyList = document.querySelector("#safety-list");
@@ -39,6 +52,16 @@ const productNotes = document.querySelector("#product-notes");
 const sweatResult = document.querySelector("#sweat-result");
 const gutPlanOutput = document.querySelector("#gut-plan");
 const macroResult = document.querySelector("#macro-result");
+const hyroxSummary = document.querySelector("#hyrox-summary");
+const hyroxWarnings = document.querySelector("#hyrox-warnings");
+const hyroxDailyTargets = document.querySelector("#hyrox-daily-targets");
+const hyroxFoodsEat = document.querySelector("#hyrox-foods-eat");
+const hyroxFoodsAvoid = document.querySelector("#hyrox-foods-avoid");
+const hyroxTiming = document.querySelector("#hyrox-timing");
+const hyroxFuelTimeline = document.querySelector("#hyrox-fuel-timeline");
+const hyroxHydration = document.querySelector("#hyrox-hydration");
+const hyroxRoxzone = document.querySelector("#hyrox-roxzone");
+const hyroxBreakdown = document.querySelector("#hyrox-breakdown");
 
 const heroCarbTarget = document.querySelector("#hero-carb-target");
 const heroFluidTarget = document.querySelector("#hero-fluid-target");
@@ -49,7 +72,11 @@ const HEAT_EXPOSURE_THRESHOLD_C = 29.5;
 const state = {
   profile: readStorage(STORAGE_KEYS.profile, null),
   lastRun: readStorage(STORAGE_KEYS.lastRun, null),
-  fuelMode: "professional"
+  hyroxProfile: readStorage(STORAGE_KEYS.hyroxProfile, null),
+  hyroxLastPlan: readStorage(STORAGE_KEYS.hyroxLastPlan, null),
+  fuelMode: "professional",
+  hyroxFuelMode: "professional",
+  activeTab: readStorage(STORAGE_KEYS.activeTab, "running")
 };
 
 function fahrenheitToCelsius(value) {
@@ -88,6 +115,11 @@ function formatFlaskPart(value) {
   return `${best.numerator}/${best.denominator} of a flask`;
 }
 
+function formatFuelDistanceMarker(minute, paceMinPerKm, distanceKm) {
+  const estimatedKm = Math.min(round(minute / paceMinPerKm, 1), distanceKm);
+  return `~${estimatedKm} km`;
+}
+
 function renderOptions(select, options, formatter = (option) => option.label) {
   select.innerHTML = "";
   for (const optionData of options) {
@@ -98,14 +130,14 @@ function renderOptions(select, options, formatter = (option) => option.label) {
   }
 }
 
-function renderFuelOptions(selectedKey) {
-  fuelSelect.innerHTML = "";
+function renderFuelOptions(select, selectedKey) {
+  select.innerHTML = "";
   for (const fuel of BUILT_IN_FUELS) {
     const option = document.createElement("option");
     option.value = fuel.key;
     option.textContent = `${fuel.name} · ${fuel.carbsPerServing}g carbs · ${fuel.sodiumPerServing}mg Na`;
     option.selected = fuel.key === selectedKey;
-    fuelSelect.appendChild(option);
+    select.appendChild(option);
   }
 }
 
@@ -156,6 +188,48 @@ function setFuelMode(mode) {
   }
 }
 
+function setHyroxFuelMode(mode) {
+  state.hyroxFuelMode = mode;
+
+  for (const button of hyroxFuelTabButtons) {
+    button.classList.toggle("is-active", button.dataset.hyroxFuelMode === mode);
+    button.setAttribute("aria-selected", button.dataset.hyroxFuelMode === mode ? "true" : "false");
+  }
+
+  const customFields = hyroxCustomFuelPanel.querySelectorAll("input, select");
+  const useCustom = mode === "custom";
+  hyroxProfessionalFuelPanel.hidden = useCustom;
+  hyroxCustomFuelPanel.hidden = !useCustom;
+
+  for (const field of customFields) {
+    field.disabled = !useCustom;
+    if (field.name !== "customNotes") {
+      field.required = useCustom;
+    }
+  }
+}
+
+function setAppTab(tab) {
+  state.activeTab = tab;
+  writeStorage(STORAGE_KEYS.activeTab, tab);
+
+  for (const button of appTabButtons) {
+    button.classList.toggle("is-active", button.dataset.appTab === tab);
+    button.setAttribute("aria-selected", button.dataset.appTab === tab ? "true" : "false");
+  }
+
+  runningApp.hidden = tab !== "running";
+  hyroxApp.hidden = tab !== "hyrox";
+}
+
+function syncActiveTabPlan() {
+  if (state.activeTab === "hyrox") {
+    handleHyroxSubmit(new Event("submit", { cancelable: true }));
+  } else {
+    handleCalculatorSubmit(new Event("submit", { cancelable: true }));
+  }
+}
+
 function fillCalculatorDefaults() {
   const baseDefaults = {
     sex: "female",
@@ -190,7 +264,7 @@ function fillCalculatorDefaults() {
   renderOptions(sweatRateSelect, SWEAT_RATE_OPTIONS);
   renderOptions(gutToleranceSelect, GUT_TOLERANCE_OPTIONS);
   renderOptions(paceSelect, PACE_OPTIONS);
-  renderFuelOptions(defaults.fuelKey);
+  renderFuelOptions(fuelSelect, defaults.fuelKey);
 
   for (const [key, value] of Object.entries(defaults)) {
     const field = calculatorForm.elements.namedItem(key);
@@ -225,11 +299,87 @@ function fillCalculatorDefaults() {
   macroForm.elements.namedItem("trainingHours").value = 1.5;
 }
 
+function applyHyroxStationDefaults(sex) {
+  for (const station of HYROX_STATIONS) {
+    const field = hyroxForm.elements.namedItem(station.key);
+    if (!field) {
+      continue;
+    }
+    field.value = sex === "male" ? station.maleDefaultMinutes : station.femaleDefaultMinutes;
+  }
+}
+
+function fillHyroxDefaults() {
+  const defaults = {
+    sex: "female",
+    weightKg: 62,
+    sweatRateLHr: 1.0,
+    sweatSaltiness: "average",
+    runPaceMinPerKm: 5.25,
+    transitionSeconds: 42,
+    fuelKey: "sis-beta-fuel",
+    fuelMode: "professional",
+    customFuelName: "Liquid carbs flask",
+    customServingSizeGrams: 40,
+    customCarbsPer100g: 75,
+    customSodiumPer100g: 450,
+    customTransportType: "dual",
+    customNotes: "",
+    ...(state.hyroxProfile ?? {})
+  };
+
+  renderOptions(hyroxSweatRateSelect, SWEAT_RATE_OPTIONS);
+  renderOptions(hyroxPaceSelect, PACE_OPTIONS);
+  renderFuelOptions(hyroxFuelSelect, defaults.fuelKey);
+
+  hyroxForm.elements.namedItem("sex").value = defaults.sex;
+  hyroxForm.elements.namedItem("weightKg").value = defaults.weightKg;
+  hyroxForm.elements.namedItem("sweatSaltiness").value = defaults.sweatSaltiness;
+  hyroxForm.elements.namedItem("transitionSeconds").value = defaults.transitionSeconds;
+  hyroxForm.elements.namedItem("customFuelName").value = defaults.customFuelName;
+  hyroxForm.elements.namedItem("customServingSizeGrams").value = defaults.customServingSizeGrams;
+  hyroxForm.elements.namedItem("customCarbsPer100g").value = defaults.customCarbsPer100g;
+  hyroxForm.elements.namedItem("customSodiumPer100g").value = defaults.customSodiumPer100g;
+  hyroxForm.elements.namedItem("customTransportType").value = defaults.customTransportType;
+  hyroxForm.elements.namedItem("customNotes").value = defaults.customNotes;
+
+  setSelectToNumericValue(hyroxSweatRateSelect, defaults.sweatRateLHr, "Indoor sweat rate");
+  const storedPace = Number(defaults.runPaceMinPerKm);
+  const nearestPace = PACE_OPTIONS.reduce((closest, option) => {
+    return Math.abs(option.value - storedPace) < Math.abs(closest.value - storedPace) ? option : closest;
+  }, PACE_OPTIONS[0]);
+  hyroxPaceSelect.value = String(nearestPace.value);
+
+  applyHyroxStationDefaults(defaults.sex);
+
+  if (state.hyroxProfile) {
+    for (const station of HYROX_STATIONS) {
+      const storedValue = state.hyroxProfile[station.key];
+      if (storedValue) {
+        hyroxForm.elements.namedItem(station.key).value = storedValue;
+      }
+    }
+  }
+
+  setHyroxFuelMode(defaults.fuelMode ?? "professional");
+  updateHyroxPredictedDuration();
+}
+
 function updateCalculatedDuration() {
   const distanceKm = Number(calculatorForm.elements.namedItem("distanceKm").value);
   const paceMinPerKm = Number(calculatorForm.elements.namedItem("paceMinPerKm").value);
   const durationMinutes = estimateDurationMinutes({ distanceKm, paceMinPerKm });
-  durationDisplay.value = durationMinutes ? round(durationMinutes, 0) : "";
+  durationDisplay.value = durationMinutes ? formatClock(durationMinutes) : "";
+}
+
+function updateHyroxPredictedDuration() {
+  const runPaceMinPerKm = Number(hyroxForm.elements.namedItem("runPaceMinPerKm").value);
+  const transitionSeconds = Number(hyroxForm.elements.namedItem("transitionSeconds").value);
+  const stationMinutes = HYROX_STATIONS.reduce((sum, station) => {
+    return sum + Number(hyroxForm.elements.namedItem(station.key).value || 0);
+  }, 0);
+  const predictedDurationMinutes = 8 * runPaceMinPerKm + stationMinutes + (8 * transitionSeconds) / 60;
+  hyroxDurationDisplay.value = predictedDurationMinutes ? formatClock(predictedDurationMinutes) : "";
 }
 
 function updateHeatExposureVisibility() {
@@ -242,12 +392,12 @@ function updateHeatExposureVisibility() {
   acclimatizationField.required = isRelevant;
 }
 
-function buildCustomFuel() {
-  const name = calculatorForm.elements.namedItem("customFuelName").value.trim();
-  const servingSizeGrams = Number(calculatorForm.elements.namedItem("customServingSizeGrams").value);
-  const carbsPer100g = Number(calculatorForm.elements.namedItem("customCarbsPer100g").value);
-  const sodiumPer100g = Number(calculatorForm.elements.namedItem("customSodiumPer100g").value);
-  const notes = calculatorForm.elements.namedItem("customNotes").value.trim();
+function buildCustomFuelFromForm(form) {
+  const name = form.elements.namedItem("customFuelName").value.trim();
+  const servingSizeGrams = Number(form.elements.namedItem("customServingSizeGrams").value);
+  const carbsPer100g = Number(form.elements.namedItem("customCarbsPer100g").value);
+  const sodiumPer100g = Number(form.elements.namedItem("customSodiumPer100g").value);
+  const notes = form.elements.namedItem("customNotes").value.trim();
 
   return {
     key: "custom-fuel",
@@ -256,13 +406,19 @@ function buildCustomFuel() {
     carbsPerServing: round((carbsPer100g / 100) * servingSizeGrams, 1),
     sodiumPerServing: round((sodiumPer100g / 100) * servingSizeGrams, 0),
     calories: round(((carbsPer100g / 100) * servingSizeGrams) * 4, 0),
-    transportType: calculatorForm.elements.namedItem("customTransportType").value,
+    transportType: form.elements.namedItem("customTransportType").value,
     notes: notes || "Custom fuel source"
   };
 }
 
 function getSelectedFuel() {
-  return state.fuelMode === "custom" ? buildCustomFuel() : getFuelByKey(fuelSelect.value);
+  return state.fuelMode === "custom" ? buildCustomFuelFromForm(calculatorForm) : getFuelByKey(fuelSelect.value);
+}
+
+function getSelectedHyroxFuel() {
+  return state.hyroxFuelMode === "custom"
+    ? buildCustomFuelFromForm(hyroxForm)
+    : getFuelByKey(hyroxFuelSelect.value);
 }
 
 function getCalculatorInput() {
@@ -296,6 +452,30 @@ function getCalculatorInput() {
     customSodiumPer100g: calculatorForm.elements.namedItem("customSodiumPer100g").value,
     customTransportType: calculatorForm.elements.namedItem("customTransportType").value,
     customNotes: calculatorForm.elements.namedItem("customNotes").value
+  };
+}
+
+function getHyroxInput() {
+  return {
+    sex: hyroxForm.elements.namedItem("sex").value,
+    weightKg: Number(hyroxForm.elements.namedItem("weightKg").value),
+    sweatRateLHr: Number(hyroxForm.elements.namedItem("sweatRateLHr").value),
+    sweatSaltiness: hyroxForm.elements.namedItem("sweatSaltiness").value,
+    runPaceMinPerKm: Number(hyroxForm.elements.namedItem("runPaceMinPerKm").value),
+    transitionSeconds: Number(hyroxForm.elements.namedItem("transitionSeconds").value),
+    fuelKey: hyroxFuelSelect.value,
+    fuelMode: state.hyroxFuelMode,
+    customFuelName: hyroxForm.elements.namedItem("customFuelName").value,
+    customServingSizeGrams: hyroxForm.elements.namedItem("customServingSizeGrams").value,
+    customCarbsPer100g: hyroxForm.elements.namedItem("customCarbsPer100g").value,
+    customSodiumPer100g: hyroxForm.elements.namedItem("customSodiumPer100g").value,
+    customTransportType: hyroxForm.elements.namedItem("customTransportType").value,
+    customNotes: hyroxForm.elements.namedItem("customNotes").value,
+    stationEstimates: HYROX_STATIONS.map((station) => ({
+      key: station.key,
+      name: station.name,
+      minutes: Number(hyroxForm.elements.namedItem(station.key).value)
+    }))
   };
 }
 
@@ -339,8 +519,9 @@ function renderRunPlan(plan, run, fuel) {
       const pairedDrinkEvent = plan.hydrationPlan.events.find(
         (hydrationEvent) => hydrationEvent.pairedWithFuel && hydrationEvent.minute === event.minute
       );
+      const distanceMarker = formatFuelDistanceMarker(event.minute, run.paceMinPerKm, run.distanceKm);
       const li = document.createElement("li");
-      li.innerHTML = `<span class="time">${formatClock(event.minute)}</span> Take <strong>1 full serving</strong> of ${fuel.name} (${event.carbs}g carbs)${
+      li.innerHTML = `<span class="time">${formatClock(event.minute)} · ${distanceMarker}</span> Take <strong>1 full serving</strong> of ${fuel.name} (${event.carbs}g carbs)${
         pairedDrinkEvent ? ` and drink ${pairedDrinkEvent.sipMl} mL at the same time.` : "."
       }`;
       fuelTimeline.appendChild(li);
@@ -430,6 +611,138 @@ function renderRunPlan(plan, run, fuel) {
     li.textContent = item;
     productNotes.appendChild(li);
   });
+}
+
+function renderHyroxPlan(plan, input, fuel) {
+  heroCarbTarget.textContent = `${round(plan.actualCarbsTotal, 0)} g`;
+  heroFluidTarget.textContent = `${plan.hydrationPlan.totalFluidL} L`;
+  heroSodiumTarget.textContent = `${plan.hydrationPlan.totalExternalSodiumMg} mg`;
+
+  hyroxSummary.innerHTML = `
+    <strong>${formatClock(plan.predictedDurationMinutes)} predicted finish time</strong>
+    <p>
+      Running contributes about <strong>${formatClock(plan.runTotalMinutes)}</strong>,
+      stations about <strong>${formatClock(plan.stationTotalMinutes)}</strong>,
+      and Roxzone transitions about <strong>${formatClock(plan.roxzoneTotalMinutes)}</strong>.
+    </p>
+    <p>
+      Carb load <strong>${plan.carbLoadingRange[0]}-${plan.carbLoadingRange[1]} g per day</strong> across the final
+      48 to 72 hours. In-race plan uses <strong>${round(plan.actualCarbsTotal, 0)} g</strong> total from
+      ${fuel.name} with a hydration plan of <strong>${plan.hydrationPlan.totalFluidL} L</strong>.
+    </p>
+  `;
+
+  hyroxWarnings.innerHTML = "";
+  plan.warnings.forEach((warning) => {
+    const li = document.createElement("li");
+    li.className =
+      warning.tone === "danger"
+        ? "callout danger"
+        : warning.tone === "success"
+          ? "callout success"
+          : "callout";
+    li.textContent = warning.text;
+    hyroxWarnings.appendChild(li);
+  });
+
+  hyroxDailyTargets.innerHTML = "";
+  plan.dailyTargets.forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    hyroxDailyTargets.appendChild(li);
+  });
+
+  hyroxFoodsEat.innerHTML = "";
+  plan.foodsToEat.forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    hyroxFoodsEat.appendChild(li);
+  });
+
+  hyroxFoodsAvoid.innerHTML = "";
+  plan.foodsToAvoid.forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    hyroxFoodsAvoid.appendChild(li);
+  });
+
+  hyroxTiming.innerHTML = "";
+  plan.timingProtocol.forEach((item) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="time">${item.label}</span>${item.text}`;
+    hyroxTiming.appendChild(li);
+  });
+
+  hyroxFuelTimeline.innerHTML = "";
+  plan.fuelEvents.forEach((event) => {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <span class="time">${event.minute < 0 ? "Pre-start" : formatClock(event.minute)}</span>
+      ${event.label}
+    `;
+    hyroxFuelTimeline.appendChild(li);
+  });
+
+  hyroxHydration.innerHTML = "";
+  [
+    {
+      label: "Total",
+      text: `Plan about ${plan.hydrationPlan.totalFluidL} L total, with roughly ${plan.hydrationPlan.totalExternalSodiumMg} mg sodium in the carry bottle or flask system.`
+    },
+    {
+      label: "Flasks",
+      text: `That is about ${plan.hydrationPlan.flaskCountEquivalent} flasks of 500 mL, or ${plan.hydrationPlan.sodiumPer500MlFlask} mg sodium per 500 mL flask.`
+    },
+    {
+      label: "Rhythm",
+      text: `Drink about ${plan.hydrationPlan.sipMl} mL every ${plan.hydrationPlan.intervalMinutes} minutes, ideally during Roxzone transitions or at official aid access.`
+    }
+  ].forEach((item) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="time">${item.label}</span>${item.text}`;
+    hyroxHydration.appendChild(li);
+  });
+
+  hyroxRoxzone.innerHTML = "";
+  plan.hydrationPlan.events.forEach((event) => {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <span class="time">${event.roxzoneLabel ?? formatClock(event.minute)}</span>
+      Drink ${event.sipMl} mL here${event.stationName ? ` after ${event.stationName}` : ""}, which is about ${formatFlaskPart(event.sipFlaskFraction)}.
+    `;
+    hyroxRoxzone.appendChild(li);
+  });
+
+  const rows = plan.breakdown
+    .map((segment) => {
+      return `
+        <tr>
+          <td>${segment.label}</td>
+          <td>${formatClock(segment.startMinute)}</td>
+          <td>${formatClock(segment.endMinute)}</td>
+          <td>${segment.detail}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  hyroxBreakdown.innerHTML = `
+    <p>
+      Estimated HYROX split model based on your selected 1 km pace and editable station times.
+      Roxzone transitions are modeled at ${formatClock(input.transitionSeconds / 60)} each.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Segment</th>
+          <th>Start</th>
+          <th>End</th>
+          <th>Note</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
 function renderSweatRate(result) {
@@ -531,6 +844,34 @@ function handleCalculatorSubmit(event) {
   gutForm.elements.namedItem("currentToleranceGHr").value = profile.gutToleranceGHr;
 }
 
+function handleHyroxSubmit(event) {
+  event.preventDefault();
+  const formValues = getHyroxInput();
+  const profile = {
+    sex: formValues.sex,
+    weightKg: formValues.weightKg,
+    sweatRateLHr: formValues.sweatRateLHr,
+    sweatSaltiness: formValues.sweatSaltiness
+  };
+  const settings = {
+    runPaceMinPerKm: formValues.runPaceMinPerKm,
+    transitionSeconds: formValues.transitionSeconds,
+    stationEstimates: formValues.stationEstimates
+  };
+  const fuel = getSelectedHyroxFuel();
+  const plan = buildHyroxPlan(profile, settings, fuel);
+
+  renderHyroxPlan(plan, formValues, fuel);
+
+  state.hyroxProfile = {
+    ...formValues,
+    ...Object.fromEntries(formValues.stationEstimates.map((station) => [station.key, station.minutes]))
+  };
+  state.hyroxLastPlan = { settings, fuel, plan };
+  writeStorage(STORAGE_KEYS.hyroxProfile, state.hyroxProfile);
+  writeStorage(STORAGE_KEYS.hyroxLastPlan, state.hyroxLastPlan);
+}
+
 function handleSweatSubmit(event) {
   event.preventDefault();
   const result = calculateSweatRate({
@@ -569,23 +910,49 @@ function handleMacroSubmit(event) {
 
 function bootstrap() {
   fillCalculatorDefaults();
+  fillHyroxDefaults();
+  setAppTab(state.activeTab ?? "running");
 
   calculatorForm.addEventListener("submit", handleCalculatorSubmit);
+  hyroxForm.addEventListener("submit", handleHyroxSubmit);
   sweatForm.addEventListener("submit", handleSweatSubmit);
   gutForm.addEventListener("submit", handleGutSubmit);
   macroForm.addEventListener("submit", handleMacroSubmit);
   calculatorForm.elements.namedItem("distanceKm").addEventListener("input", updateCalculatedDuration);
   paceSelect.addEventListener("change", updateCalculatedDuration);
   calculatorForm.elements.namedItem("temperatureC").addEventListener("input", updateHeatExposureVisibility);
+  hyroxPaceSelect.addEventListener("change", updateHyroxPredictedDuration);
+  hyroxForm.elements.namedItem("transitionSeconds").addEventListener("input", updateHyroxPredictedDuration);
+  hyroxForm.elements.namedItem("sex").addEventListener("change", (event) => {
+    applyHyroxStationDefaults(event.target.value);
+    updateHyroxPredictedDuration();
+  });
+
+  HYROX_STATIONS.forEach((station) => {
+    hyroxForm.elements.namedItem(station.key).addEventListener("input", updateHyroxPredictedDuration);
+  });
 
   for (const button of tabButtons) {
     button.addEventListener("click", () => setFuelMode(button.dataset.fuelMode));
   }
 
+  for (const button of hyroxFuelTabButtons) {
+    button.addEventListener("click", () => setHyroxFuelMode(button.dataset.hyroxFuelMode));
+  }
+
+  for (const button of appTabButtons) {
+    button.addEventListener("click", () => {
+      setAppTab(button.dataset.appTab);
+      syncActiveTabPlan();
+    });
+  }
+
   handleCalculatorSubmit(new Event("submit", { cancelable: true }));
+  handleHyroxSubmit(new Event("submit", { cancelable: true }));
   handleSweatSubmit(new Event("submit", { cancelable: true }));
   handleGutSubmit(new Event("submit", { cancelable: true }));
   handleMacroSubmit(new Event("submit", { cancelable: true }));
+  syncActiveTabPlan();
 }
 
 bootstrap();

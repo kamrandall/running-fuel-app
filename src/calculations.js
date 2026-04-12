@@ -27,13 +27,11 @@ export function roundToNearest(value, step = 5) {
 }
 
 export function formatClock(minutes) {
-  const total = Math.max(0, Math.round(minutes));
-  const hrs = Math.floor(total / 60);
-  const mins = total % 60;
-  if (hrs === 0) {
-    return `${mins} min`;
-  }
-  return `${hrs}h ${String(mins).padStart(2, "0")}m`;
+  const totalSeconds = Math.max(0, Math.round(minutes * 60));
+  const hrs = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
 export function estimateDurationMinutes({ distanceKm, paceMinPerKm }) {
@@ -617,5 +615,257 @@ export function buildGutTrainingPlan({ currentWeek, goalCarbsHr, currentToleranc
   return {
     plan,
     peakTarget: round(cappedGoal, 0)
+  };
+}
+
+function mapEventsToRoxzones(events, roxzones, windowMinutes = 12) {
+  const reserved = new Set();
+
+  return events.map((event) => {
+    const nearest = roxzones
+      .map((roxzone) => ({
+        roxzone,
+        difference: Math.abs(roxzone.minute - event.minute)
+      }))
+      .filter(({ roxzone, difference }) => difference <= windowMinutes && !reserved.has(roxzone.key))
+      .sort((left, right) => left.difference - right.difference)[0];
+
+    if (!nearest) {
+      return {
+        ...event,
+        roxzoneLabel: null
+      };
+    }
+
+    reserved.add(nearest.roxzone.key);
+    return {
+      ...event,
+      minute: nearest.roxzone.minute,
+      roxzoneLabel: nearest.roxzone.label,
+      stationName: nearest.roxzone.stationName
+    };
+  });
+}
+
+function buildHyroxHydrationPlan(profile, durationMinutes, roxzones, fuelSodiumPerHour) {
+  const durationHours = durationMinutes / 60;
+  const baseSweatRate = Math.max(profile.sweatRateLHr, profile.sex === "male" ? 0.95 : 0.85);
+  const targetFluidLHr = clamp(baseSweatRate * 0.75, 0.45, 0.85);
+  const intervalMinutes = durationMinutes > 90 || profile.sweatRateLHr > 1.0 ? 15 : 20;
+  const eventCount = Math.max(1, Math.ceil(durationMinutes / intervalMinutes));
+  const sipMl = clamp(roundToNearest((targetFluidLHr * durationHours * 1000) / eventCount, 10), 150, 250);
+  const totalWaterMl = sipMl * eventCount;
+  const flaskVolumeMl = 500;
+  const sodiumBySweater = {
+    low: 350,
+    average: 500,
+    salty: 850
+  };
+  const targetSodiumMgHr = sodiumBySweater[profile.sweatSaltiness] ?? sodiumBySweater.average;
+  const totalSodiumGoal = round(targetSodiumMgHr * durationHours, 0);
+  const externalSodiumMg = Math.max(round(totalSodiumGoal - fuelSodiumPerHour * durationHours, 0), 0);
+  const sodiumPer500MlFlask =
+    totalWaterMl > 0 ? roundToNearest((externalSodiumMg / totalWaterMl) * flaskVolumeMl, 25) : 0;
+  const plannedExternalSodiumMg = round((sodiumPer500MlFlask / flaskVolumeMl) * totalWaterMl, 0);
+  const minuteEvents = [];
+
+  for (let index = 1; index <= eventCount; index += 1) {
+    minuteEvents.push({
+      minute: Math.min(index * intervalMinutes, durationMinutes),
+      sipMl,
+      sipFlaskFraction: round(sipMl / flaskVolumeMl, 2)
+    });
+  }
+
+  const events = mapEventsToRoxzones(minuteEvents, roxzones);
+
+  return {
+    targetFluidLHr: round(targetFluidLHr, 2),
+    intervalMinutes,
+    sipMl,
+    totalWaterMl,
+    totalFluidL: round(totalWaterMl / 1000, 2),
+    sodiumPer500MlFlask,
+    totalExternalSodiumMg: plannedExternalSodiumMg,
+    flaskCountEquivalent: round(totalWaterMl / flaskVolumeMl, 2),
+    flaskCountToCarry: Math.max(1, Math.ceil(totalWaterMl / flaskVolumeMl)),
+    events
+  };
+}
+
+export function buildHyroxPlan(profile, settings, fuel) {
+  const runLegMinutes = settings.runPaceMinPerKm;
+  const transitionMinutes = settings.transitionSeconds / 60;
+  const stationEstimates = settings.stationEstimates.map((station) => ({
+    ...station,
+    minutes: Number(station.minutes)
+  }));
+  const runTotalMinutes = round(runLegMinutes * 8, 1);
+  const stationTotalMinutes = round(stationEstimates.reduce((sum, station) => sum + station.minutes, 0), 1);
+  const roxzoneTotalMinutes = round(transitionMinutes * 8, 1);
+
+  let cumulativeMinute = 0;
+  const breakdown = [];
+  const roxzones = [];
+
+  stationEstimates.forEach((station, index) => {
+    const runNumber = index + 1;
+    const runStart = cumulativeMinute;
+    cumulativeMinute += runLegMinutes;
+    breakdown.push({
+      label: `Run ${runNumber}`,
+      type: "run",
+      startMinute: round(runStart, 1),
+      endMinute: round(cumulativeMinute, 1),
+      detail: `${runNumber} km run`
+    });
+
+    const stationStart = cumulativeMinute;
+    cumulativeMinute += station.minutes;
+    breakdown.push({
+      label: station.name,
+      type: "station",
+      startMinute: round(stationStart, 1),
+      endMinute: round(cumulativeMinute, 1),
+      detail: `${formatClock(station.minutes)} estimated station time`
+    });
+
+    const roxzoneStart = cumulativeMinute;
+    cumulativeMinute += transitionMinutes;
+    const roxzoneEnd = cumulativeMinute;
+    const roxzoneLabel = `Roxzone after ${station.name}`;
+    roxzones.push({
+      key: `roxzone-${runNumber}`,
+      minute: round(roxzoneEnd, 0),
+      label: roxzoneLabel,
+      stationName: station.name
+    });
+    breakdown.push({
+      label: `Roxzone ${runNumber}`,
+      type: "roxzone",
+      startMinute: round(roxzoneStart, 1),
+      endMinute: round(roxzoneEnd, 1),
+      detail: `${formatClock(settings.transitionSeconds / 60)} transition window`
+    });
+  });
+
+  const predictedDurationMinutes = round(cumulativeMinute, 0);
+  const durationHours = predictedDurationMinutes / 60;
+  const carbLoadingRange = [round(profile.weightKg * 7, 0), round(profile.weightKg * 10, 0)];
+  const raceMorningRange = [round(profile.weightKg * 1, 0), round(profile.weightKg * 4, 0)];
+
+  let targetCarbsHr = 0;
+  if (predictedDurationMinutes >= 75) {
+    targetCarbsHr = predictedDurationMinutes > 105 ? 60 : predictedDurationMinutes > 90 ? 45 : 30;
+  }
+
+  const fuelEvents = [
+    {
+      minute: -15,
+      label:
+        predictedDurationMinutes < 75
+          ? "Take one caffeine gel 15 to 30 minutes before the start if you tolerate caffeine well."
+          : "Take your first gel 10 to 15 minutes before the start with a few mouthfuls of water.",
+      roxzoneLabel: "Pre-start"
+    }
+  ];
+
+  if (predictedDurationMinutes >= 75) {
+    const midRaceRoxzone = roxzones[Math.min(3, roxzones.length - 1)];
+    fuelEvents.push({
+      minute: midRaceRoxzone.minute,
+      label: `Take a full serving during ${midRaceRoxzone.label}. This is the cleanest window around the 30 to 45-minute mark.`,
+      roxzoneLabel: midRaceRoxzone.label
+    });
+  }
+
+  if (predictedDurationMinutes > 80) {
+    const lateOptions = [roxzones[5], roxzones[6], roxzones[7]].filter(Boolean);
+    const lateRaceRoxzone =
+      lateOptions.sort((left, right) => Math.abs(left.minute - 65) - Math.abs(right.minute - 65))[0] ??
+      roxzones.at(-1);
+    fuelEvents.push({
+      minute: lateRaceRoxzone.minute,
+      label: `Take another full serving during ${lateRaceRoxzone.label}, ideally before the final run-in or Wall Balls.`,
+      roxzoneLabel: lateRaceRoxzone.label
+    });
+  }
+
+  const actualCarbsTotal = fuelEvents.length * fuel.carbsPerServing;
+  const fuelSodiumPerHour = durationHours > 0 ? round((fuelEvents.length * fuel.sodiumPerServing) / durationHours, 0) : 0;
+  const hydrationPlan = buildHyroxHydrationPlan(profile, predictedDurationMinutes, roxzones, fuelSodiumPerHour);
+  const projectedNetFluidLossL = Math.max(Math.max(profile.sweatRateLHr, 0.85) - hydrationPlan.targetFluidLHr, 0) * durationHours;
+  const bodyMassLossPercent = (projectedNetFluidLossL / profile.weightKg) * 100;
+
+  const warnings = [
+    {
+      tone: "warn",
+      text: "HYROX is indoor and standardized, so outdoor weather is ignored here. The planner assumes a relatively sweaty indoor environment and prioritizes electrolyte pre-loading."
+    },
+    {
+      tone: predictedDurationMinutes > 95 ? "warn" : "success",
+      text:
+        predictedDurationMinutes > 95
+          ? "Predicted duration pushes beyond the typical 60 to 90-minute HYROX window, so mid-race fueling becomes much more important."
+          : "Predicted duration sits inside the common HYROX racing window. Pre-race setup remains the biggest performance lever."
+    }
+  ];
+
+  if (bodyMassLossPercent > 2) {
+    warnings.push({
+      tone: "danger",
+      text: `Even with the planned drinks, projected body-mass loss is about ${round(bodyMassLossPercent, 1)}%. Tighten Roxzone drinking execution if that feels realistic for you.`
+    });
+  }
+
+  return {
+    predictedDurationMinutes,
+    durationHours,
+    runTotalMinutes,
+    stationTotalMinutes,
+    roxzoneTotalMinutes,
+    carbLoadingRange,
+    raceMorningRange,
+    targetCarbsHr,
+    actualCarbsTotal,
+    actualCarbsHr: durationHours > 0 ? round(actualCarbsTotal / durationHours, 1) : 0,
+    fuelEvents,
+    hydrationPlan,
+    breakdown,
+    warnings,
+    bodyMassLossPercent: round(bodyMassLossPercent, 1),
+    dailyTargets: [
+      "Start carbohydrate loading 48 to 72 hours before race day while tapering training volume.",
+      `Target ${carbLoadingRange[0]} to ${carbLoadingRange[1]} g carbohydrate per day during the loading phase.`,
+      "A temporary 0.9 to 1.8 kg gain during carb loading is normal and useful because stored glycogen pulls water with it."
+    ],
+    foodsToEat: [
+      "White rice, pasta, potatoes, and sweet potatoes for easy glycogen loading.",
+      "Sourdough or white bread, bagels, oats, bananas, honey, and jam.",
+      "Sports drinks, liquid carbohydrates, or chews if solid food feels too heavy."
+    ],
+    foodsToAvoid: [
+      "Reduce fiber and fat in the final 48 hours to protect digestion and improve carbohydrate storage.",
+      "Avoid broccoli and other cruciferous vegetables, lentils, bran, and heavy sauces.",
+      "Avoid unfamiliar foods or any race-week experiment you have not tested in training."
+    ],
+    timingProtocol: [
+      {
+        label: "48 to 72 hours out",
+        text: "Spread carbohydrates across 3 main meals plus 3 to 4 high-carb snacks each day instead of one giant loading meal."
+      },
+      {
+        label: "Night before",
+        text: "Eat a moderate, familiar carb-rich meal and finish 3 to 4 hours before bed so digestion does not disrupt sleep. Also drink 500 mL of a strong electrolyte drink that evening."
+      },
+      {
+        label: "Race morning",
+        text: `Take ${raceMorningRange[0]} to ${raceMorningRange[1]} g carbohydrate 3 to 4 hours before the start with essentially zero fat and zero fiber. Then drink another 500 mL electrolyte bottle about 90 minutes before the gun.`
+      },
+      {
+        label: "60 to 90 minutes pre-start",
+        text: "Top up with 30 to 50 g of simple carbohydrates from a sports drink or chews if you want a lighter final top-off before the start."
+      }
+    ]
   };
 }

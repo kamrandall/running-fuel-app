@@ -57,6 +57,35 @@ body::before {
   padding: 28px 0 48px;
 }
 
+.app-mode-tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.app-tab-button {
+  appearance: none;
+  border: 1px solid rgba(132, 152, 255, 0.2);
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: rgba(14, 18, 34, 0.86);
+  color: var(--muted);
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.app-tab-button.is-active {
+  background: linear-gradient(135deg, rgba(35, 178, 255, 0.24), rgba(255, 79, 207, 0.24));
+  border-color: rgba(35, 178, 255, 0.36);
+  color: #ffffff;
+}
+
+.app-panel[hidden] {
+  display: none;
+}
+
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
@@ -218,6 +247,10 @@ body::before {
 
 .four-up {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.station-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 label {

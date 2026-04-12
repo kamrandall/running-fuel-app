@@ -53,7 +53,10 @@ export const BUILT_IN_FUELS = [
 
 export const STORAGE_KEYS = {
   profile: "running-fuel-profile",
-  lastRun: "running-fuel-last-run"
+  lastRun: "running-fuel-last-run",
+  hyroxProfile: "hyrox-fuel-profile",
+  hyroxLastPlan: "hyrox-fuel-last-plan",
+  activeTab: "running-fuel-active-tab"
 };
 
 export const RUN_TYPE_LABELS = {
@@ -84,18 +87,29 @@ export const GUT_TOLERANCE_OPTIONS = [
 ];
 
 export const PACE_OPTIONS = [
-  { value: 3.25, label: "3.0 - 3.5 min/km" },
-  { value: 3.75, label: "3.5 - 4.0 min/km" },
-  { value: 4.25, label: "4.0 - 4.5 min/km" },
-  { value: 4.75, label: "4.5 - 5.0 min/km" },
-  { value: 5.25, label: "5.0 - 5.5 min/km" },
-  { value: 5.75, label: "5.5 - 6.0 min/km" },
-  { value: 6.25, label: "6.0 - 6.5 min/km" },
-  { value: 6.75, label: "6.5 - 7.0 min/km" },
-  { value: 7.25, label: "7.0 - 7.5 min/km" },
-  { value: 7.75, label: "7.5 - 8.0 min/km" },
-  { value: 8.25, label: "8.0 - 8.5 min/km" },
-  { value: 8.75, label: "8.5 - 9.0 min/km" },
-  { value: 9.25, label: "9.0 - 9.5 min/km" },
-  { value: 9.75, label: "9.5 - 10.0 min/km" }
+  { value: 3.25, label: "03:00 - 03:30 /km" },
+  { value: 3.75, label: "03:30 - 04:00 /km" },
+  { value: 4.25, label: "04:00 - 04:30 /km" },
+  { value: 4.75, label: "04:30 - 05:00 /km" },
+  { value: 5.25, label: "05:00 - 05:30 /km" },
+  { value: 5.75, label: "05:30 - 06:00 /km" },
+  { value: 6.25, label: "06:00 - 06:30 /km" },
+  { value: 6.75, label: "06:30 - 07:00 /km" },
+  { value: 7.25, label: "07:00 - 07:30 /km" },
+  { value: 7.75, label: "07:30 - 08:00 /km" },
+  { value: 8.25, label: "08:00 - 08:30 /km" },
+  { value: 8.75, label: "08:30 - 09:00 /km" },
+  { value: 9.25, label: "09:00 - 09:30 /km" },
+  { value: 9.75, label: "09:30 - 10:00 /km" }
+];
+
+export const HYROX_STATIONS = [
+  { key: "ski", name: "Station 1 · SkiErg", maleDefaultMinutes: 4.2, femaleDefaultMinutes: 4.4 },
+  { key: "sledPush", name: "Station 2 · Sled Push", maleDefaultMinutes: 3.4, femaleDefaultMinutes: 3.0 },
+  { key: "sledPull", name: "Station 3 · Sled Pull", maleDefaultMinutes: 3.2, femaleDefaultMinutes: 2.9 },
+  { key: "burpees", name: "Station 4 · Burpee Broad Jumps", maleDefaultMinutes: 4.8, femaleDefaultMinutes: 4.8 },
+  { key: "row", name: "Station 5 · Row", maleDefaultMinutes: 4.1, femaleDefaultMinutes: 4.3 },
+  { key: "farmersCarry", name: "Station 6 · Farmers Carry", maleDefaultMinutes: 2.1, femaleDefaultMinutes: 2.2 },
+  { key: "lunges", name: "Station 7 · Sandbag Lunges", maleDefaultMinutes: 4.1, femaleDefaultMinutes: 4.0 },
+  { key: "wallBalls", name: "Station 8 · Wall Balls", maleDefaultMinutes: 5.1, femaleDefaultMinutes: 4.5 }
 ];

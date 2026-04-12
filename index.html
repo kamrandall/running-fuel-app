@@ -16,12 +16,12 @@
     <div class="page-shell">
       <header class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">Running Nutrition and Hydration Planner</p>
+          <p class="eyebrow">Running and HYROX Fuel Planner</p>
           <h1>Build race-day fueling plans from physiology, not guesswork.</h1>
           <p class="hero-text">
             Estimate carbohydrates, water, sodium, and timing for easy runs, threshold work,
-            long runs, and race efforts. Save a sweat-rate baseline, train the gut, and keep
-            daily recovery targets visible.
+            long runs, race efforts, and indoor HYROX competition. Save a sweat-rate baseline,
+            train the gut, and keep daily recovery targets visible.
           </p>
         </div>
         <div class="hero-stats">
@@ -50,7 +50,12 @@
         recurring GI distress, or heat illness risk.
       </section>
 
-      <main class="app-grid">
+      <div class="app-mode-tabs" role="tablist" aria-label="Planner mode">
+        <button type="button" class="app-tab-button is-active" data-app-tab="running">Running</button>
+        <button type="button" class="app-tab-button" data-app-tab="hyrox">HYROX</button>
+      </div>
+
+      <main id="running-app" class="app-panel app-grid">
         <section class="panel controls-panel">
           <div class="panel-header">
             <h2>Run Setup</h2>
@@ -121,10 +126,10 @@
               </label>
 
               <label>
-                Calculated duration (min)
+                Calculated duration (HH:MM:SS)
                 <input
                   id="duration-display"
-                  type="number"
+                  type="text"
                   name="durationMinutesDisplay"
                   readonly
                 />
@@ -420,6 +425,256 @@
           </section>
         </section>
       </main>
+
+      <section id="hyrox-app" class="app-panel app-grid" hidden>
+        <section class="panel controls-panel">
+          <div class="panel-header">
+            <h2>HYROX Setup</h2>
+            <p>Predict finish time, plan Roxzone fueling, and dial in indoor hydration.</p>
+          </div>
+
+          <div class="info-block">
+            <strong>Indoor event logic</strong>
+            This planner ignores outdoor weather because HYROX is raced indoors. It assumes a warm,
+            relatively sweaty indoor environment and puts more emphasis on pre-race electrolytes,
+            Roxzone fueling, and what you can carry from the start line.
+          </div>
+
+          <form id="hyrox-form" class="stack">
+            <div class="field-grid two-up">
+              <label>
+                Biological sex
+                <span class="micro-note">Used here to set division defaults and expected station demand. No intersex-specific model yet.</span>
+                <select name="sex">
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                </select>
+              </label>
+
+              <label>
+                Weight (kg)
+                <input type="number" name="weightKg" min="35" max="150" step="0.1" required />
+              </label>
+            </div>
+
+            <div class="field-grid three-up">
+              <label>
+                Indoor sweat rate
+                <select id="hyrox-sweat-rate-select" name="sweatRateLHr"></select>
+              </label>
+
+              <label>
+                Sweat sodium profile
+                <select name="sweatSaltiness">
+                  <option value="average">Average sweater</option>
+                  <option value="low">Low sodium sweater</option>
+                  <option value="salty">Salty sweater</option>
+                </select>
+              </label>
+
+              <label>
+                1km run pace
+                <select id="hyrox-pace-select" name="runPaceMinPerKm"></select>
+              </label>
+            </div>
+
+            <div class="field-grid two-up">
+              <label>
+                Roxzone transition (sec)
+                <input type="number" name="transitionSeconds" min="20" max="90" step="1" required />
+              </label>
+
+              <label>
+                Predicted duration (HH:MM:SS)
+                <input id="hyrox-duration-display" type="text" name="predictedDurationMinutes" readonly />
+              </label>
+            </div>
+
+            <section class="sub-panel">
+              <div class="sub-panel-header">
+                <h3>Station Estimates</h3>
+                <p>Edit each station if you know your splits. Defaults update when sex changes.</p>
+              </div>
+
+              <div class="field-grid two-up station-grid">
+                <label>
+                  SkiErg (min)
+                  <input type="number" name="ski" min="1" max="12" step="0.1" required />
+                </label>
+
+                <label>
+                  Sled Push (min)
+                  <input type="number" name="sledPush" min="1" max="12" step="0.1" required />
+                </label>
+
+                <label>
+                  Sled Pull (min)
+                  <input type="number" name="sledPull" min="1" max="12" step="0.1" required />
+                </label>
+
+                <label>
+                  Burpee Broad Jumps (min)
+                  <input type="number" name="burpees" min="1" max="12" step="0.1" required />
+                </label>
+
+                <label>
+                  Row (min)
+                  <input type="number" name="row" min="1" max="12" step="0.1" required />
+                </label>
+
+                <label>
+                  Farmers Carry (min)
+                  <input type="number" name="farmersCarry" min="0.5" max="8" step="0.1" required />
+                </label>
+
+                <label>
+                  Sandbag Lunges (min)
+                  <input type="number" name="lunges" min="1" max="12" step="0.1" required />
+                </label>
+
+                <label>
+                  Wall Balls (min)
+                  <input type="number" name="wallBalls" min="1" max="15" step="0.1" required />
+                </label>
+              </div>
+            </section>
+
+            <section class="sub-panel">
+              <div class="sub-panel-header">
+                <h3>Race Fuel</h3>
+                <p>Choose a professional gel or model your own serving.</p>
+              </div>
+
+              <div class="segment-tabs" role="tablist" aria-label="HYROX fuel source">
+                <button type="button" class="hyrox-fuel-tab-button tab-button is-active" data-hyrox-fuel-mode="professional">
+                  Professional gels
+                </button>
+                <button type="button" class="hyrox-fuel-tab-button tab-button" data-hyrox-fuel-mode="custom">
+                  Your own fuel
+                </button>
+              </div>
+
+              <div id="hyrox-professional-fuel-panel" class="fuel-panel">
+                <label>
+                  Race fuel
+                  <select id="hyrox-fuel-select" name="fuelKey"></select>
+                </label>
+              </div>
+
+              <fieldset id="hyrox-custom-fuel-panel" class="fuel-panel" hidden>
+                <legend>Your own fuel source</legend>
+                <div class="field-grid two-up">
+                  <label>
+                    Fuel name
+                    <input type="text" name="customFuelName" maxlength="40" />
+                  </label>
+
+                  <label>
+                    Serving size (g)
+                    <input type="number" name="customServingSizeGrams" min="5" max="250" step="1" />
+                  </label>
+                </div>
+
+                <div class="field-grid two-up">
+                  <label>
+                    Carbs per 100g
+                    <input type="number" name="customCarbsPer100g" min="0" max="100" step="0.1" />
+                  </label>
+
+                  <label>
+                    Sodium per 100g (mg)
+                    <input type="number" name="customSodiumPer100g" min="0" max="5000" step="1" />
+                  </label>
+                </div>
+
+                <div class="field-grid two-up">
+                  <label>
+                    Transport type
+                    <select name="customTransportType">
+                      <option value="single">Single source</option>
+                      <option value="dual">Dual source</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    Notes
+                    <input type="text" name="customNotes" maxlength="70" placeholder="Optional" />
+                  </label>
+                </div>
+              </fieldset>
+            </section>
+
+            <div class="button-row">
+              <button type="submit" class="button">Build HYROX plan</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="results-column">
+          <section class="panel results-panel">
+            <div class="panel-header">
+              <h2>HYROX Fueling Plan</h2>
+              <p>Pre-race setup, carb loading, Roxzone prompts, and hydration strategy.</p>
+            </div>
+
+            <div class="results-grid">
+              <article class="result-card emphasized">
+                <span class="result-label">Race Summary</span>
+                <div id="hyrox-summary" class="summary-body"></div>
+              </article>
+
+              <article class="result-card">
+                <span class="result-label">Warnings</span>
+                <ul id="hyrox-warnings" class="plain-list"></ul>
+              </article>
+
+              <article class="result-card">
+                <span class="result-label">Duration and Daily Targets</span>
+                <ul id="hyrox-daily-targets" class="plain-list"></ul>
+              </article>
+
+              <article class="result-card">
+                <span class="result-label">What to Eat</span>
+                <ul id="hyrox-foods-eat" class="plain-list"></ul>
+              </article>
+
+              <article class="result-card">
+                <span class="result-label">What to Avoid</span>
+                <ul id="hyrox-foods-avoid" class="plain-list"></ul>
+              </article>
+
+              <article class="result-card">
+                <span class="result-label">Timing of Meals</span>
+                <div id="hyrox-timing" class="timeline"></div>
+              </article>
+
+              <article class="result-card">
+                <span class="result-label">Race Fuel Timeline</span>
+                <div id="hyrox-fuel-timeline" class="timeline"></div>
+              </article>
+
+              <article class="result-card">
+                <span class="result-label">Hydration Strategy</span>
+                <div id="hyrox-hydration" class="timeline"></div>
+              </article>
+
+              <article class="result-card">
+                <span class="result-label">Roxzone Planner</span>
+                <div id="hyrox-roxzone" class="timeline"></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel module-panel">
+            <div class="panel-header">
+              <h2>Race Breakdown</h2>
+              <p>Predicted runs, stations, and Roxzone transitions in order.</p>
+            </div>
+
+            <div id="hyrox-breakdown" class="module-output"></div>
+          </section>
+        </section>
+      </section>
     </div>
 
     <script type="module" src="./src/main.js"></script>
