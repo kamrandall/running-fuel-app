@@ -205,6 +205,18 @@ body::before {
   padding: 24px;
 }
 
+@media (min-width: 1141px) {
+  .controls-panel,
+  .results-column {
+    position: sticky;
+    top: 18px;
+    max-height: calc(100vh - 36px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
+
 .controls-panel {
   position: sticky;
   top: 18px;
@@ -574,6 +586,14 @@ input[readonly] {
 
   .controls-panel {
     position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .results-column {
+    position: static;
+    max-height: none;
+    overflow: visible;
   }
 }
 
