@@ -66,8 +66,13 @@ const hyroxBreakdown = document.querySelector("#hyrox-breakdown");
 const heroCarbTarget = document.querySelector("#hero-carb-target");
 const heroFluidTarget = document.querySelector("#hero-fluid-target");
 const heroSodiumTarget = document.querySelector("#hero-sodium-target");
+const hero = document.querySelector(".hero");
+const heroStats = document.querySelector(".hero-stats");
+const heroStatsHome = document.querySelector("#hero-stats-home");
+const mobileHeroStatsAnchor = document.querySelector("#mobile-hero-stats-anchor");
 
 const HEAT_EXPOSURE_THRESHOLD_C = 29.5;
+const MOBILE_STATS_BREAKPOINT = "(max-width: 1140px)";
 
 const state = {
   profile: readStorage(STORAGE_KEYS.profile, null),
@@ -118,6 +123,27 @@ function formatFlaskPart(value) {
 function formatFuelDistanceMarker(minute, paceMinPerKm, distanceKm) {
   const estimatedKm = Math.min(round(minute / paceMinPerKm, 1), distanceKm);
   return `~${estimatedKm} km`;
+}
+
+function syncHeroStatsPosition() {
+  if (!hero || !heroStats || !heroStatsHome || !mobileHeroStatsAnchor) {
+    return;
+  }
+
+  const useMobileRunningPlacement =
+    window.matchMedia(MOBILE_STATS_BREAKPOINT).matches && state.activeTab === "running";
+
+  if (useMobileRunningPlacement) {
+    if (heroStats.parentElement !== mobileHeroStatsAnchor) {
+      mobileHeroStatsAnchor.append(heroStats);
+    }
+    mobileHeroStatsAnchor.hidden = false;
+  } else {
+    if (heroStats.parentElement !== hero) {
+      heroStatsHome.before(heroStats);
+    }
+    mobileHeroStatsAnchor.hidden = true;
+  }
 }
 
 function renderOptions(select, options, formatter = (option) => option.label) {
@@ -220,6 +246,7 @@ function setAppTab(tab) {
 
   runningApp.hidden = tab !== "running";
   hyroxApp.hidden = tab !== "hyrox";
+  syncHeroStatsPosition();
 }
 
 function syncActiveTabPlan() {
@@ -912,6 +939,7 @@ function bootstrap() {
   fillCalculatorDefaults();
   fillHyroxDefaults();
   setAppTab(state.activeTab ?? "running");
+  syncHeroStatsPosition();
 
   calculatorForm.addEventListener("submit", handleCalculatorSubmit);
   hyroxForm.addEventListener("submit", handleHyroxSubmit);
@@ -946,6 +974,8 @@ function bootstrap() {
       syncActiveTabPlan();
     });
   }
+
+  window.addEventListener("resize", syncHeroStatsPosition);
 
   handleCalculatorSubmit(new Event("submit", { cancelable: true }));
   handleHyroxSubmit(new Event("submit", { cancelable: true }));
