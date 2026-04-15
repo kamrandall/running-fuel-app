@@ -253,6 +253,12 @@ body::before {
 .field-grid {
   display: grid;
   gap: 14px;
+  align-items: stretch;
+}
+
+.field-grid > * {
+  min-width: 0;
+  height: 100%;
 }
 
 .two-up {
@@ -272,10 +278,17 @@ body::before {
 }
 
 label {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   font-size: 0.92rem;
   font-weight: 700;
+  height: 100%;
+}
+
+label > input,
+label > select {
+  margin-top: auto;
 }
 
 .micro-note {
@@ -294,11 +307,14 @@ button {
 input,
 select {
   width: 100%;
+  min-height: 48px;
+  height: 48px;
   border: 1px solid rgba(132, 152, 255, 0.22);
   border-radius: 14px;
   background: rgba(8, 12, 26, 0.96);
   color: #f4f7ff;
   padding: 12px 14px;
+  box-sizing: border-box;
   outline: none;
   transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
@@ -364,6 +380,25 @@ input::placeholder {
   display: flex;
   gap: 10px;
   margin-bottom: 16px;
+}
+
+.fuel-selection-mode-button,
+.hyrox-fuel-selection-mode-button {
+  min-width: 210px;
+  text-align: center;
+}
+
+.segment-tabs:has(.fuel-selection-mode-button),
+.segment-tabs:has(.hyrox-fuel-selection-mode-button) {
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fuel-mode-tabs {
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .tab-button,
