@@ -41,6 +41,13 @@ export function estimateDurationMinutes({ distanceKm, paceMinPerKm }) {
   return distanceKm * paceMinPerKm;
 }
 
+export function estimatePaceMinPerKm({ distanceKm, durationMinutes }) {
+  if (!distanceKm || !durationMinutes) {
+    return 0;
+  }
+  return durationMinutes / distanceKm;
+}
+
 function celsiusToFahrenheit(value) {
   return value * (9 / 5) + 32;
 }
@@ -137,12 +144,13 @@ function getGuidelineFluidTargetLHr(profile, run, heatIndexC, heatCategory, dura
 }
 
 function pickBaseCarbTarget(runType, durationMinutes) {
-  if (["easy", "recovery"].includes(runType) && durationMinutes < 75) {
+  if (durationMinutes < 75) {
     return {
       mode: "none",
       targetCarbsHr: 0,
       totalCarbs: 0,
-      rationale: "Short easy or recovery running can stay unfueled so the session stays aerobic and simple."
+      rationale:
+        "Runs under 75 minutes can rely on endogenous glycogen, so intra-run carbohydrates are usually unnecessary."
     };
   }
 
@@ -151,7 +159,8 @@ function pickBaseCarbTarget(runType, durationMinutes) {
       mode: "fixed",
       targetCarbsHr: 0,
       totalCarbs: 30,
-      rationale: "Sub-90-minute quality work gets one focused carbohydrate hit to protect late-session quality and train the gut."
+      rationale:
+        "Sub-90-minute quality work gets one focused carbohydrate hit to protect late-session quality and train the gut. Runs beyond an hour benefit from steady exogenous carbohydrate support."
     };
   }
 
@@ -165,7 +174,7 @@ function pickBaseCarbTarget(runType, durationMinutes) {
     totalCarbs: 0,
     rationale:
       band === "high"
-        ? "Extended endurance running pushes carbohydrate demand into the 60 to 90 grams per hour zone."
+        ? "Extended endurance running pushes carbohydrate demand into the 60 to 90 grams per hour zone. Runs beyond an hour benefit from steady exogenous carbohydrate support."
         : "Runs beyond an hour benefit from steady exogenous carbohydrate support."
   };
 }
@@ -218,6 +227,19 @@ function makeFuelTimeline({ durationMinutes, targetCarbsHr, totalCarbs, mode, fu
     actualCarbsTotal: round(actualCarbsTotal, 1),
     actualCarbsHr: round(actualCarbsTotal / durationHours, 1),
     actualServingsTotal: servingsTotal
+  };
+}
+
+function getPreStartFuelRecommendation(runType, durationMinutes, fuel) {
+  if (!["long", "race"].includes(runType) || durationMinutes < 75) {
+    return null;
+  }
+
+  return {
+    minute: -15,
+    label: `Take 1 full ${fuel.name} 10 to 15 minutes before the start with a few sips of water.`,
+    warning:
+      "Do not take it too early while you are still standing around. More than 15 to 30 minutes early can trigger an insulin spike and leave you flat on the start line."
   };
 }
 
@@ -435,7 +457,7 @@ function buildWarnings({
 }
 
 export function buildRunPlan(profile, run, fuel) {
-  const durationMinutes = estimateDurationMinutes(run);
+  const durationMinutes = run.durationMinutes || estimateDurationMinutes(run);
   const durationHours = durationMinutes / 60;
   const heatIndexC = computeHeatIndexC(run.temperatureC, run.humidityPercent);
   const wbgtC = approximateWBGTC(run.temperatureC, run.humidityPercent);
@@ -453,6 +475,7 @@ export function buildRunPlan(profile, run, fuel) {
     mode: baseFueling.mode,
     fuel
   });
+  const preStartFuel = getPreStartFuelRecommendation(run.runType, durationMinutes, fuel);
 
   const sodiumBase = SODIUM_BY_SWEATER[profile.sweatSaltiness] ?? SODIUM_BY_SWEATER.average;
   const heatSodiumModifier = heatCategory === "danger" || heatCategory === "very-high" ? 350 : heatCategory === "high" ? 200 : 0;
@@ -510,6 +533,7 @@ export function buildRunPlan(profile, run, fuel) {
     totalFluidL: round(alignedHydrationPlan.totalWaterMl / 1000, 2),
     totalWaterMl: alignedHydrationPlan.totalWaterMl,
     fuelTimeline,
+    preStartFuel,
     hydrationPlan: alignedHydrationPlan,
     warnings,
     bodyMassLossPercent: round(bodyMassLossPercent, 1),
@@ -764,8 +788,8 @@ export function buildHyroxPlan(profile, settings, fuel) {
       minute: -15,
       label:
         predictedDurationMinutes < 75
-          ? "Take one caffeine gel 15 to 30 minutes before the start if you tolerate caffeine well."
-          : "Take your first gel 10 to 15 minutes before the start with a few mouthfuls of water.",
+          ? "Take one caffeine gel 15 to 30 minutes before the start if you tolerate caffeine well, but avoid taking it too early while you are still waiting around."
+          : "Take your first gel 10 to 15 minutes before the start with a few mouthfuls of water. Avoid taking it too early while you are still standing around, or you risk a rebound blood-sugar dip on the line.",
       roxzoneLabel: "Pre-start"
     }
   ];

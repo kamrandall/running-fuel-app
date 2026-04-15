@@ -14,9 +14,11 @@ import {
   calculateDailyMacros,
   calculateSweatRate,
   estimateDurationMinutes,
+  estimatePaceMinPerKm,
   formatClock,
   round
 } from "./calculations.js";
+import { canScrollElement, selectScrollPanel } from "./scroll-routing.js";
 
 const calculatorForm = document.querySelector("#calculator-form");
 const hyroxForm = document.querySelector("#hyrox-form");
@@ -29,6 +31,7 @@ const sweatRateSelect = document.querySelector("#sweat-rate-select");
 const hyroxSweatRateSelect = document.querySelector("#hyrox-sweat-rate-select");
 const gutToleranceSelect = document.querySelector("#gut-tolerance-select");
 const paceSelect = document.querySelector("#pace-select");
+const paceDisplay = document.querySelector("#pace-display");
 const hyroxPaceSelect = document.querySelector("#hyrox-pace-select");
 const durationDisplay = document.querySelector("#duration-display");
 const hyroxDurationDisplay = document.querySelector("#hyrox-duration-display");
@@ -37,6 +40,7 @@ const appTabButtons = document.querySelectorAll(".app-tab-button");
 const runningApp = document.querySelector("#running-app");
 const hyroxApp = document.querySelector("#hyrox-app");
 const tabButtons = calculatorForm.querySelectorAll(".segment-tabs .tab-button");
+const durationModeButtons = document.querySelectorAll(".duration-mode-button");
 const professionalFuelPanel = document.querySelector("#professional-fuel-panel");
 const customFuelPanel = document.querySelector("#custom-fuel-panel");
 const hyroxFuelTabButtons = document.querySelectorAll(".hyrox-fuel-tab-button");
@@ -70,9 +74,12 @@ const hero = document.querySelector(".hero");
 const heroStats = document.querySelector(".hero-stats");
 const heroStatsHome = document.querySelector("#hero-stats-home");
 const mobileHeroStatsAnchor = document.querySelector("#mobile-hero-stats-anchor");
+const durationLabel = document.querySelector("#duration-label");
+const paceLabel = document.querySelector("#pace-label");
 
 const HEAT_EXPOSURE_THRESHOLD_C = 29.5;
 const MOBILE_STATS_BREAKPOINT = "(max-width: 1140px)";
+const DESKTOP_SCROLL_ROUTING_QUERY = "(min-width: 1141px)";
 
 const state = {
   profile: readStorage(STORAGE_KEYS.profile, null),
@@ -81,7 +88,12 @@ const state = {
   hyroxLastPlan: readStorage(STORAGE_KEYS.hyroxLastPlan, null),
   fuelMode: "professional",
   hyroxFuelMode: "professional",
+  durationMode: "calculated",
   activeTab: readStorage(STORAGE_KEYS.activeTab, "running")
+};
+
+const scrollRoutingState = {
+  hoveredPanel: null
 };
 
 function fahrenheitToCelsius(value) {
@@ -125,6 +137,32 @@ function formatFuelDistanceMarker(minute, paceMinPerKm, distanceKm) {
   return `~${estimatedKm} km`;
 }
 
+function formatPaceDisplay(minPerKm) {
+  return minPerKm ? `${formatClock(minPerKm)} /km` : "";
+}
+
+function parseDurationDisplay(value) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 0;
+  }
+
+  const parts = trimmed.split(":").map((part) => part.trim());
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) {
+    return Number.NaN;
+  }
+
+  const numericParts = parts.map(Number);
+  const [hours, minutes, seconds] =
+    numericParts.length === 3 ? numericParts : [0, numericParts[0], numericParts[1]];
+
+  if (minutes > 59 || seconds > 59) {
+    return Number.NaN;
+  }
+
+  return hours * 60 + minutes + seconds / 60;
+}
+
 function syncHeroStatsPosition() {
   if (!hero || !heroStats || !heroStatsHome || !mobileHeroStatsAnchor) {
     return;
@@ -144,6 +182,88 @@ function syncHeroStatsPosition() {
     }
     mobileHeroStatsAnchor.hidden = true;
   }
+}
+
+function isDesktopScrollRoutingEnabled() {
+  return window.matchMedia(DESKTOP_SCROLL_ROUTING_QUERY).matches;
+}
+
+function getVisiblePlannerRoot() {
+  return state.activeTab === "hyrox" ? hyroxApp : runningApp;
+}
+
+function getVisibleScrollPanels() {
+  const activeRoot = getVisiblePlannerRoot();
+  if (!activeRoot || activeRoot.hidden) {
+    return [];
+  }
+
+  return Array.from(activeRoot.querySelectorAll(".controls-panel, .results-column"));
+}
+
+function getFocusedScrollPanel() {
+  const activeElement = document.activeElement;
+  if (!activeElement) {
+    return null;
+  }
+
+  return getVisibleScrollPanels().find((panel) => panel.contains(activeElement)) ?? null;
+}
+
+function getEventScrollPanel(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) {
+    return null;
+  }
+
+  return getVisibleScrollPanels().find((panel) => panel.contains(target)) ?? null;
+}
+
+function handleScrollPanelHover(event) {
+  if (!isDesktopScrollRoutingEnabled()) {
+    scrollRoutingState.hoveredPanel = null;
+    return;
+  }
+
+  const currentTarget = event.currentTarget instanceof Element ? event.currentTarget : null;
+  if (!currentTarget) {
+    return;
+  }
+
+  if (event.type === "pointerenter") {
+    scrollRoutingState.hoveredPanel = currentTarget;
+    return;
+  }
+
+  if (scrollRoutingState.hoveredPanel === currentTarget) {
+    scrollRoutingState.hoveredPanel = null;
+  }
+}
+
+function handleDesktopWheelRouting(event) {
+  if (!isDesktopScrollRoutingEnabled() || event.defaultPrevented || event.ctrlKey || event.metaKey) {
+    return;
+  }
+
+  const visiblePanels = getVisibleScrollPanels();
+  if (visiblePanels.length === 0) {
+    return;
+  }
+
+  const hoveredPanel = getEventScrollPanel(event) ?? scrollRoutingState.hoveredPanel;
+  const focusedPanel = getFocusedScrollPanel();
+  const targetPanel = selectScrollPanel({
+    hoveredPanel,
+    focusedPanel,
+    visiblePanels
+  });
+
+  if (!targetPanel || !canScrollElement(targetPanel, event.deltaY)) {
+    return;
+  }
+
+  event.preventDefault();
+  targetPanel.scrollTop += event.deltaY;
 }
 
 function renderOptions(select, options, formatter = (option) => option.label) {
@@ -214,6 +334,39 @@ function setFuelMode(mode) {
   }
 }
 
+function setDurationMode(mode) {
+  state.durationMode = mode;
+
+  for (const button of durationModeButtons) {
+    button.classList.toggle("is-active", button.dataset.durationMode === mode);
+    button.setAttribute("aria-selected", button.dataset.durationMode === mode ? "true" : "false");
+  }
+
+  const isCalculated = mode === "calculated";
+  durationDisplay.readOnly = isCalculated;
+  paceSelect.hidden = !isCalculated;
+  paceSelect.disabled = !isCalculated;
+  paceDisplay.hidden = isCalculated;
+  durationLabel.textContent = isCalculated
+    ? "Calculated duration (HH:MM:SS)"
+    : "Manual duration (HH:MM:SS)";
+  paceLabel.textContent = isCalculated ? "Pace" : "Calculated pace (HH:MM:SS /km)";
+  durationDisplay.placeholder = isCalculated ? "" : "01:45:00";
+
+  if (isCalculated) {
+    updateCalculatedDuration();
+    paceDisplay.value = "";
+  } else if (!durationDisplay.value) {
+    const distanceKm = Number(calculatorForm.elements.namedItem("distanceKm").value);
+    const paceMinPerKm = Number(calculatorForm.elements.namedItem("paceMinPerKm").value);
+    const calculatedDuration = estimateDurationMinutes({ distanceKm, paceMinPerKm });
+    durationDisplay.value = calculatedDuration ? formatClock(calculatedDuration) : "";
+    updateManualPaceDisplay();
+  } else {
+    updateManualPaceDisplay();
+  }
+}
+
 function setHyroxFuelMode(mode) {
   state.hyroxFuelMode = mode;
 
@@ -237,6 +390,7 @@ function setHyroxFuelMode(mode) {
 
 function setAppTab(tab) {
   state.activeTab = tab;
+  scrollRoutingState.hoveredPanel = null;
   writeStorage(STORAGE_KEYS.activeTab, tab);
 
   for (const button of appTabButtons) {
@@ -267,6 +421,7 @@ function fillCalculatorDefaults() {
     runType: "long",
     distanceKm: 22,
     paceMinPerKm: 5.75,
+    durationMode: "calculated",
     temperatureC: 18,
     humidityPercent: 58,
     acclimatizationDays: 8,
@@ -281,7 +436,8 @@ function fillCalculatorDefaults() {
   };
   const defaults = {
     ...baseDefaults,
-    ...(state.profile ?? {})
+    ...(state.profile ?? {}),
+    sweatRateLHr: baseDefaults.sweatRateLHr
   };
 
   if (!defaults.temperatureC && defaults.temperatureF) {
@@ -307,7 +463,9 @@ function fillCalculatorDefaults() {
     return Math.abs(option.value - storedPace) < Math.abs(closest.value - storedPace) ? option : closest;
   }, PACE_OPTIONS[0]);
   paceSelect.value = String(nearestPace.value);
+  state.durationMode = defaults.durationMode ?? "calculated";
   setFuelMode(defaults.fuelMode ?? "professional");
+  setDurationMode(state.durationMode);
   updateCalculatedDuration();
   updateHeatExposureVisibility();
 
@@ -393,10 +551,27 @@ function fillHyroxDefaults() {
 }
 
 function updateCalculatedDuration() {
+  if (state.durationMode !== "calculated") {
+    return;
+  }
+
   const distanceKm = Number(calculatorForm.elements.namedItem("distanceKm").value);
   const paceMinPerKm = Number(calculatorForm.elements.namedItem("paceMinPerKm").value);
   const durationMinutes = estimateDurationMinutes({ distanceKm, paceMinPerKm });
   durationDisplay.value = durationMinutes ? formatClock(durationMinutes) : "";
+}
+
+function updateManualPaceDisplay() {
+  if (state.durationMode !== "manual") {
+    return;
+  }
+
+  const distanceKm = Number(calculatorForm.elements.namedItem("distanceKm").value);
+  const durationMinutes = parseDurationDisplay(durationDisplay.value);
+  const paceMinPerKm = Number.isFinite(durationMinutes)
+    ? estimatePaceMinPerKm({ distanceKm, durationMinutes })
+    : 0;
+  paceDisplay.value = formatPaceDisplay(paceMinPerKm);
 }
 
 function updateHyroxPredictedDuration() {
@@ -449,9 +624,18 @@ function getSelectedHyroxFuel() {
 }
 
 function getCalculatorInput() {
-  const paceMinPerKm = Number(calculatorForm.elements.namedItem("paceMinPerKm").value);
   const distanceKm = Number(calculatorForm.elements.namedItem("distanceKm").value);
-  const durationMinutes = estimateDurationMinutes({ distanceKm, paceMinPerKm });
+  const durationMinutes =
+    state.durationMode === "manual"
+      ? parseDurationDisplay(durationDisplay.value)
+      : estimateDurationMinutes({
+          distanceKm,
+          paceMinPerKm: Number(calculatorForm.elements.namedItem("paceMinPerKm").value)
+        });
+  const paceMinPerKm =
+    state.durationMode === "manual"
+      ? estimatePaceMinPerKm({ distanceKm, durationMinutes })
+      : Number(calculatorForm.elements.namedItem("paceMinPerKm").value);
   const temperatureC = Number(calculatorForm.elements.namedItem("temperatureC").value);
 
   return {
@@ -462,9 +646,14 @@ function getCalculatorInput() {
     sweatSaltiness: calculatorForm.elements.namedItem("sweatSaltiness").value,
     runType: calculatorForm.elements.namedItem("runType").value,
     durationMinutes,
+    durationMode: state.durationMode,
+    durationMinutesDisplay: durationDisplay.value,
     distanceKm,
     paceMinPerKm,
-    paceLabel: paceSelect.options[paceSelect.selectedIndex].textContent,
+    paceLabel:
+      state.durationMode === "manual"
+        ? formatPaceDisplay(paceMinPerKm)
+        : paceSelect.options[paceSelect.selectedIndex].textContent,
     temperatureC,
     humidityPercent: Number(calculatorForm.elements.namedItem("humidityPercent").value),
     acclimatizationDays:
@@ -539,8 +728,19 @@ function renderRunPlan(plan, run, fuel) {
   }
 
   fuelTimeline.innerHTML = "";
+  if (plan.preStartFuel) {
+    const preStartItem = document.createElement("li");
+    preStartItem.innerHTML = `
+      <span class="time">Pre-start</span>
+      ${plan.preStartFuel.label} <strong>Do not take it too early</strong>: ${plan.preStartFuel.warning}
+    `;
+    fuelTimeline.appendChild(preStartItem);
+  }
+
   if (plan.fuelTimeline.events.length === 0) {
-    fuelTimeline.innerHTML = `<li>Skip intra-run carbohydrates. Focus on water and electrolytes only.</li>`;
+    const li = document.createElement("li");
+    li.textContent = "Skip intra-run carbohydrates. Focus on water and electrolytes only.";
+    fuelTimeline.appendChild(li);
   } else {
     for (const event of plan.fuelTimeline.events) {
       const pairedDrinkEvent = plan.hydrationPlan.events.find(
@@ -631,8 +831,7 @@ function renderRunPlan(plan, run, fuel) {
     fuel.notes,
     fuel.transportType === "dual"
       ? "Dual-transport carbohydrates support higher hourly intake once your gut is trained."
-      : "Single-source carbohydrates are best kept near or below 60 g/hr.",
-    "This planner never recommends fractions of a gel. Every event is rounded to a full serving."
+      : "Single-source carbohydrates are best kept near or below 60 g/hr."
   ].forEach((item) => {
     const li = document.createElement("li");
     li.textContent = item;
@@ -839,6 +1038,12 @@ function renderMacros(result) {
 function handleCalculatorSubmit(event) {
   event.preventDefault();
   const formValues = getCalculatorInput();
+  if (!Number.isFinite(formValues.durationMinutes) || formValues.durationMinutes <= 0) {
+    durationDisplay.setCustomValidity("Enter a valid duration in HH:MM:SS format.");
+    durationDisplay.reportValidity();
+    return;
+  }
+  durationDisplay.setCustomValidity("");
   const profile = {
     sex: formValues.sex,
     weightKg: formValues.weightKg,
@@ -899,8 +1104,7 @@ function handleHyroxSubmit(event) {
   writeStorage(STORAGE_KEYS.hyroxLastPlan, state.hyroxLastPlan);
 }
 
-function handleSweatSubmit(event) {
-  event.preventDefault();
+function updateSweatRateModule({ syncRunningSelect = true } = {}) {
   const result = calculateSweatRate({
     preMassKg: Number(sweatForm.elements.namedItem("preMassKg").value),
     postMassKg: Number(sweatForm.elements.namedItem("postMassKg").value),
@@ -908,7 +1112,14 @@ function handleSweatSubmit(event) {
     durationMinutes: Number(sweatForm.elements.namedItem("durationMinutes").value)
   });
   renderSweatRate(result);
-  setSelectToNumericValue(sweatRateSelect, result.sweatRateLHr, "Measured sweat rate");
+  if (syncRunningSelect) {
+    setSelectToNumericValue(sweatRateSelect, result.sweatRateLHr, "Measured sweat rate");
+  }
+}
+
+function handleSweatSubmit(event) {
+  event.preventDefault();
+  updateSweatRateModule({ syncRunningSelect: true });
 }
 
 function handleGutSubmit(event) {
@@ -947,7 +1158,14 @@ function bootstrap() {
   gutForm.addEventListener("submit", handleGutSubmit);
   macroForm.addEventListener("submit", handleMacroSubmit);
   calculatorForm.elements.namedItem("distanceKm").addEventListener("input", updateCalculatedDuration);
+  calculatorForm.elements.namedItem("distanceKm").addEventListener("input", updateManualPaceDisplay);
   paceSelect.addEventListener("change", updateCalculatedDuration);
+  durationDisplay.addEventListener("input", () => {
+    if (state.durationMode === "manual") {
+      durationDisplay.setCustomValidity("");
+      updateManualPaceDisplay();
+    }
+  });
   calculatorForm.elements.namedItem("temperatureC").addEventListener("input", updateHeatExposureVisibility);
   hyroxPaceSelect.addEventListener("change", updateHyroxPredictedDuration);
   hyroxForm.elements.namedItem("transitionSeconds").addEventListener("input", updateHyroxPredictedDuration);
@@ -964,6 +1182,10 @@ function bootstrap() {
     button.addEventListener("click", () => setFuelMode(button.dataset.fuelMode));
   }
 
+  for (const button of durationModeButtons) {
+    button.addEventListener("click", () => setDurationMode(button.dataset.durationMode));
+  }
+
   for (const button of hyroxFuelTabButtons) {
     button.addEventListener("click", () => setHyroxFuelMode(button.dataset.hyroxFuelMode));
   }
@@ -975,11 +1197,20 @@ function bootstrap() {
     });
   }
 
-  window.addEventListener("resize", syncHeroStatsPosition);
+  document.querySelectorAll(".controls-panel, .results-column").forEach((panel) => {
+    panel.addEventListener("pointerenter", handleScrollPanelHover);
+    panel.addEventListener("pointerleave", handleScrollPanelHover);
+  });
+
+  window.addEventListener("resize", () => {
+    scrollRoutingState.hoveredPanel = null;
+    syncHeroStatsPosition();
+  });
+  window.addEventListener("wheel", handleDesktopWheelRouting, { passive: false });
 
   handleCalculatorSubmit(new Event("submit", { cancelable: true }));
   handleHyroxSubmit(new Event("submit", { cancelable: true }));
-  handleSweatSubmit(new Event("submit", { cancelable: true }));
+  updateSweatRateModule({ syncRunningSelect: false });
   handleGutSubmit(new Event("submit", { cancelable: true }));
   handleMacroSubmit(new Event("submit", { cancelable: true }));
   syncActiveTabPlan();

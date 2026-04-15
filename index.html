@@ -115,6 +115,30 @@
               </label>
             </div>
 
+            <section class="sub-panel">
+              <div class="sub-panel-header">
+                <h3>Duration Source</h3>
+                <p>Choose whether the run time is calculated from pace and distance or entered manually.</p>
+              </div>
+
+              <div class="segment-tabs" role="tablist" aria-label="Duration source">
+                <button
+                  type="button"
+                  class="duration-mode-button is-active"
+                  data-duration-mode="calculated"
+                >
+                  Calculate from pace + distance
+                </button>
+                <button
+                  type="button"
+                  class="duration-mode-button"
+                  data-duration-mode="manual"
+                >
+                  Enter duration manually
+                </button>
+              </div>
+            </section>
+
             <div class="field-grid three-up">
               <label>
                 Distance (km)
@@ -122,12 +146,13 @@
               </label>
 
               <label>
-                Pace
+                <span id="pace-label">Pace</span>
                 <select id="pace-select" name="paceMinPerKm"></select>
+                <input id="pace-display" type="text" readonly hidden />
               </label>
 
               <label>
-                Calculated duration (HH:MM:SS)
+                <span id="duration-label">Calculated duration (HH:MM:SS)</span>
                 <input
                   id="duration-display"
                   type="text"
@@ -406,7 +431,7 @@
           <section class="panel integration-panel">
             <div class="panel-header">
               <h2>Future Integrations</h2>
-              <p>Ready for data wiring when you want to expand beyond this standalone version.</p>
+              <p>Coming in the future.</p>
             </div>
 
             <div class="integration-grid">

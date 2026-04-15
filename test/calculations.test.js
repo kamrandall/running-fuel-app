@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { BUILT_IN_FUELS } from "../src/constants.js";
 import {
   approximateWBGTC,
   approximateWetBulbC,
@@ -11,6 +12,7 @@ import {
   calculateSweatRate,
   clamp,
   computeHeatIndexC,
+  estimatePaceMinPerKm,
   estimateDurationMinutes,
   formatClock,
   round,
@@ -34,16 +36,29 @@ const neversecondC30 = {
 const sisGoIsotonic = {
   name: "SiS GO Isotonic",
   carbsPerServing: 22,
-  sodiumPerServing: 20,
+  sodiumPerServing: 10,
   transportType: "single"
 };
 
 const sisBetaFuel = {
   name: "SiS Beta Fuel",
   carbsPerServing: 40,
-  sodiumPerServing: 35,
+  sodiumPerServing: 30,
   transportType: "dual"
 };
+
+test("commercial gel constants match the current product database values", () => {
+  const fuelsByKey = Object.fromEntries(BUILT_IN_FUELS.map((fuel) => [fuel.key, fuel]));
+
+  assert.equal(fuelsByKey["neversecond-c30"].carbsPerServing, 30);
+  assert.equal(fuelsByKey["neversecond-c30"].sodiumPerServing, 200);
+  assert.equal(fuelsByKey["sis-beta-fuel"].carbsPerServing, 40);
+  assert.equal(fuelsByKey["sis-beta-fuel"].sodiumPerServing, 30);
+  assert.equal(fuelsByKey["sis-go-isotonic"].carbsPerServing, 22);
+  assert.equal(fuelsByKey["sis-go-isotonic"].sodiumPerServing, 10);
+  assert.equal(fuelsByKey["maurten-gel-100"].carbsPerServing, 25);
+  assert.equal(fuelsByKey["maurten-gel-100"].sodiumPerServing, 20);
+});
 
 test("utility math helpers keep their current rounding and formatting behavior", () => {
   assert.equal(clamp(-3, 0, 10), 0);
@@ -54,6 +69,31 @@ test("utility math helpers keep their current rounding and formatting behavior",
   assert.equal(roundToNearest(117, 25), 125);
   assert.equal(formatClock(72.5), "01:12:30");
   assert.equal(estimateDurationMinutes({ distanceKm: 10, paceMinPerKm: 5.75 }), 57.5);
+  assert.equal(estimatePaceMinPerKm({ distanceKm: 10, durationMinutes: 57.5 }), 5.75);
+});
+
+test("buildRunPlan prefers an explicit duration over pace-derived duration", () => {
+  const plan = buildRunPlan(
+    {
+      sex: "male",
+      weightKg: 70,
+      sweatRateLHr: 1.0,
+      sweatSaltiness: "average",
+      gutToleranceGHr: 90
+    },
+    {
+      runType: "long",
+      distanceKm: 22,
+      paceMinPerKm: 5.75,
+      durationMinutes: 150,
+      temperatureC: 18,
+      humidityPercent: 58,
+      acclimatizationDays: 8
+    },
+    sisBetaFuel
+  );
+
+  assert.equal(plan.durationMinutes, 150);
 });
 
 test("heat and wet-bulb approximations stay stable", () => {
@@ -124,7 +164,7 @@ test("cool easy runs around an hour stay drink-to-thirst with optional carried e
   assert.equal(plan.hydrationPlan.flaskCountToCarry, 1);
 });
 
-test("tempo sessions use whole-fuel servings, paired drinks, and never suggest fractions", () => {
+test("tempo sessions under 75 minutes stay unfueled while hydration remains scheduled", () => {
   const profile = {
     sex: "male",
     weightKg: 70,
@@ -146,28 +186,66 @@ test("tempo sessions use whole-fuel servings, paired drinks, and never suggest f
     sisGoIsotonic
   );
 
+  assert.equal(plan.fuelingMode, "none");
+  assert.equal(plan.totalCarbsGoal, 0);
+  assert.equal(plan.requestedCarbsHr, 0);
+  assert.equal(plan.fuelTimeline.actualServingsTotal, 0);
+  assert.equal(plan.fuelTimeline.events.length, 0);
+  assert.equal(plan.hydrationPlan.intervalMinutes, 20);
+  assert.equal(plan.hydrationPlan.sipMl, 180);
+  assert.equal(plan.totalExternalSodiumMg, 459);
+  assert.equal(plan.hydrationPlan.sodiumPer500MlFlask, 425);
+  assert.deepEqual(
+    plan.hydrationPlan.events.map((event) => event.minute),
+    [20, 40, 60]
+  );
+  assert.ok(
+    plan.hydrationPlan.events.every((event) => event.pairedWithFuel === undefined)
+  );
+});
+
+test("tempo sessions from 75 to 90 minutes still use fixed whole-serving fueling", () => {
+  const profile = {
+    sex: "male",
+    weightKg: 70,
+    sweatRateLHr: 1.0,
+    sweatSaltiness: "average",
+    gutToleranceGHr: 90
+  };
+
+  const plan = buildRunPlan(
+    profile,
+    {
+      runType: "tempo",
+      distanceKm: 16,
+      paceMinPerKm: 5,
+      temperatureC: 18,
+      humidityPercent: 55,
+      acclimatizationDays: 0
+    },
+    sisGoIsotonic
+  );
+
+  assert.equal(plan.durationMinutes, 80);
   assert.equal(plan.fuelingMode, "fixed");
   assert.equal(plan.totalCarbsGoal, 30);
+  assert.ok(plan.rationale.includes("Runs beyond an hour benefit from steady exogenous carbohydrate support."));
   assert.equal(plan.fuelTimeline.actualServingsTotal, 2);
   assert.deepEqual(
     plan.fuelTimeline.events.map((event) => event.minute),
-    [20, 40]
+    [25, 55]
   );
-  assert.deepEqual(
-    plan.fuelTimeline.events.map((event) => event.label),
-    ["1 full SiS GO Isotonic", "1 full SiS GO Isotonic"]
-  );
-  assert.ok(plan.fuelTimeline.events.every((event) => event.servings === 1));
-  assert.equal(plan.hydrationPlan.intervalMinutes, 20);
-  assert.equal(plan.hydrationPlan.sipMl, 180);
   assert.deepEqual(
     plan.hydrationPlan.events.map((event) => [event.minute, event.pairedWithFuel]),
     [
-      [20, true],
-      [40, true],
-      [60, false]
+      [25, true],
+      [40, false],
+      [55, true],
+      [80, false]
     ]
   );
+  assert.equal(plan.totalExternalSodiumMg, 576);
+  assert.equal(plan.hydrationPlan.sodiumPer500MlFlask, 400);
 });
 
 test("hot long runs cap single-source carbs, increase sodium, and use a 15-minute drink rhythm", () => {
@@ -195,13 +273,17 @@ test("hot long runs cap single-source carbs, increase sodium, and use a 15-minut
   assert.equal(plan.heatCategory, "very-high");
   assert.equal(plan.requestedCarbsHr, 60);
   assert.equal(plan.targetSodiumMgHr, 900);
+  assert.ok(plan.rationale.includes("Runs beyond an hour benefit from steady exogenous carbohydrate support."));
   assert.equal(plan.hydrationPlan.intervalMinutes, 15);
   assert.equal(plan.hydrationPlan.sipMl, 200);
   assert.equal(plan.totalWaterMl, 2400);
-  assert.equal(plan.totalExternalSodiumMg, 2520);
-  assert.equal(plan.hydrationPlan.sodiumPer500MlFlask, 525);
+  assert.equal(plan.totalExternalSodiumMg, 2640);
+  assert.equal(plan.hydrationPlan.sodiumPer500MlFlask, 550);
   assert.equal(plan.fuelTimeline.actualServingsTotal, 9);
   assert.equal(plan.fuelTimeline.actualCarbsHr, 66);
+  assert.equal(plan.preStartFuel?.minute, -15);
+  assert.ok(plan.preStartFuel?.label.includes("10 to 15 minutes before the start"));
+  assert.ok(plan.preStartFuel?.warning.includes("15 to 30 minutes early"));
   assert.ok(plan.warnings.some((warning) => warning.text.includes("Heat stress is very high")));
   assert.ok(plan.warnings.some((warning) => warning.text.includes("early in heat exposure")));
 });
@@ -245,6 +327,8 @@ test("race fueling rounds up to full gels and preserves the overshoot warning", 
   assert.equal(malePlan.fuelTimeline.actualServingsTotal, 3);
   assert.equal(malePlan.fuelTimeline.actualCarbsTotal, 120);
   assertClose(malePlan.fuelTimeline.actualCarbsHr, 75.8, 0.01);
+  assert.equal(malePlan.preStartFuel?.minute, -15);
+  assert.ok(malePlan.preStartFuel?.label.includes("10 to 15 minutes before the start"));
   assert.deepEqual(
     malePlan.fuelTimeline.events.map((event) => event.minute),
     [25, 45, 70]
@@ -252,6 +336,52 @@ test("race fueling rounds up to full gels and preserves the overshoot warning", 
   assert.ok(malePlan.warnings.some((warning) => warning.text.includes("Whole-gel scheduling overshoots")));
   assert.equal(malePlan.totalWaterMl, 1050);
   assert.ok(femalePlan.totalWaterMl < malePlan.totalWaterMl);
+});
+
+test("intra-run carbohydrate targets stay the same across body weights", () => {
+  const lighterPlan = buildRunPlan(
+    {
+      sex: "male",
+      weightKg: 55,
+      sweatRateLHr: 1.0,
+      sweatSaltiness: "average",
+      gutToleranceGHr: 90
+    },
+    {
+      runType: "race",
+      distanceKm: 21.1,
+      paceMinPerKm: 4.5,
+      temperatureC: 20,
+      humidityPercent: 55,
+      acclimatizationDays: 10
+    },
+    sisBetaFuel
+  );
+  const heavierPlan = buildRunPlan(
+    {
+      sex: "male",
+      weightKg: 85,
+      sweatRateLHr: 1.0,
+      sweatSaltiness: "average",
+      gutToleranceGHr: 90
+    },
+    {
+      runType: "race",
+      distanceKm: 21.1,
+      paceMinPerKm: 4.5,
+      temperatureC: 20,
+      humidityPercent: 55,
+      acclimatizationDays: 10
+    },
+    sisBetaFuel
+  );
+
+  assert.equal(lighterPlan.requestedCarbsHr, heavierPlan.requestedCarbsHr);
+  assert.equal(lighterPlan.fuelTimeline.actualCarbsTotal, heavierPlan.fuelTimeline.actualCarbsTotal);
+  assert.deepEqual(
+    lighterPlan.fuelTimeline.events.map((event) => event.minute),
+    heavierPlan.fuelTimeline.events.map((event) => event.minute)
+  );
 });
 
 test("sweat-rate math preserves fluid-loss, body-mass-loss, and replace-window outputs", () => {
@@ -374,6 +504,7 @@ test("HYROX plans keep the mid-race roxzone mapping and pre-race loading guidanc
       [38, "Roxzone after Burpee Broad Jumps"]
     ]
   );
+  assert.ok(plan.fuelEvents[0].label.includes("Avoid taking it too early"));
   assert.equal(plan.hydrationPlan.intervalMinutes, 20);
   assert.equal(plan.hydrationPlan.totalWaterMl, 800);
   assert.equal(plan.hydrationPlan.totalExternalSodiumMg, 240);
@@ -444,6 +575,7 @@ test("HYROX keeps the short-race and long-race fueling branches stable", () => {
   assert.equal(shortPlan.targetCarbsHr, 0);
   assert.equal(shortPlan.fuelEvents.length, 1);
   assert.ok(shortPlan.fuelEvents[0].label.includes("caffeine gel"));
+  assert.ok(shortPlan.fuelEvents[0].label.includes("avoid taking it too early"));
 
   assert.equal(longPlan.predictedDurationMinutes, 100);
   assert.equal(longPlan.targetCarbsHr, 45);

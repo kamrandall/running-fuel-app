@@ -205,6 +205,24 @@ body::before {
   padding: 24px;
 }
 
+@media (min-width: 1141px) {
+  .controls-panel,
+  .results-column {
+    min-height: 0;
+    max-height: calc(100vh - 36px);
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .controls-panel::-webkit-scrollbar,
+  .results-column::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
 .controls-panel {
   position: sticky;
   top: 18px;
@@ -348,7 +366,8 @@ input::placeholder {
   margin-bottom: 16px;
 }
 
-.tab-button {
+.tab-button,
+.duration-mode-button {
   appearance: none;
   border: 1px solid rgba(132, 152, 255, 0.18);
   border-radius: 999px;
@@ -360,7 +379,8 @@ input::placeholder {
   transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
 }
 
-.tab-button.is-active {
+.tab-button.is-active,
+.duration-mode-button.is-active {
   background: linear-gradient(135deg, rgba(35, 178, 255, 0.22), rgba(255, 79, 207, 0.22));
   border-color: rgba(35, 178, 255, 0.34);
   color: #ffffff;
