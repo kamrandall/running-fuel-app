@@ -182,7 +182,24 @@
             <section class="sub-panel">
               <div class="sub-panel-header">
                 <h3>Fuel Source</h3>
-                <p>Select a professional gel or define your own serving.</p>
+                <p>Use a single fuel source for the classic calculator flow, or switch to multiple sources when you want a mixed kit.</p>
+              </div>
+
+              <div class="segment-tabs" role="tablist" aria-label="Running fuel selection mode">
+                <button
+                  type="button"
+                  class="fuel-selection-mode-button tab-button is-active"
+                  data-fuel-selection-mode="single"
+                >
+                  Single fuel source
+                </button>
+                <button
+                  type="button"
+                  class="fuel-selection-mode-button tab-button"
+                  data-fuel-selection-mode="multiple"
+                >
+                  Multiple fuel sources
+                </button>
               </div>
 
               <div class="segment-tabs" role="tablist" aria-label="Fuel source">
@@ -199,10 +216,20 @@
               </div>
 
               <div id="professional-fuel-panel" class="fuel-panel">
-                <label>
-                  Professional gel
-                  <select id="fuel-select" name="fuelKey"></select>
-                </label>
+                <div class="field-grid two-up">
+                  <label>
+                    Professional fuel source
+                    <select id="fuel-select" name="fuelKey"></select>
+                  </label>
+
+                  <label id="fuel-quantity-field" hidden>
+                    Quantity to add
+                    <input id="fuel-quantity" type="number" min="1" max="20" step="1" value="1" />
+                  </label>
+                </div>
+                <button id="add-professional-fuel" type="button" class="button button-secondary" hidden>
+                  Add to kit
+                </button>
               </div>
 
               <fieldset id="custom-fuel-panel" class="fuel-panel" hidden>
@@ -241,11 +268,35 @@
                   </label>
 
                   <label>
+                    Fuel type
+                    <select name="customFuelType">
+                      <option value="solid">Solid / gummies</option>
+                      <option value="standard-gel">Standard gel / chews</option>
+                      <option value="hydrogel">Hydrogel</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="field-grid two-up">
+                  <label id="custom-quantity-field" hidden>
+                    Quantity to add
+                    <input type="number" name="customQuantity" min="1" max="20" step="1" value="1" />
+                  </label>
+
+                  <label>
                     Notes
                     <input type="text" name="customNotes" maxlength="70" placeholder="Optional" />
                   </label>
                 </div>
+                <button id="add-custom-fuel" type="button" class="button button-secondary" hidden>
+                  Add custom item
+                </button>
               </fieldset>
+
+              <div id="running-kit-output" class="module-output" hidden>
+                <p id="fuel-kit-summary"></p>
+                <ul id="fuel-kit-list" class="plain-list"></ul>
+              </div>
             </section>
 
             <div class="button-row">
@@ -569,8 +620,25 @@
 
             <section class="sub-panel">
               <div class="sub-panel-header">
-                <h3>Race Fuel</h3>
-                <p>Choose a professional gel or model your own serving.</p>
+                <h3>Race Fuel Source</h3>
+                <p>Keep the simple single-fuel setup, or switch to multiple sources for a mixed HYROX race kit.</p>
+              </div>
+
+              <div class="segment-tabs" role="tablist" aria-label="HYROX fuel selection mode">
+                <button
+                  type="button"
+                  class="hyrox-fuel-selection-mode-button tab-button is-active"
+                  data-hyrox-fuel-selection-mode="single"
+                >
+                  Single fuel source
+                </button>
+                <button
+                  type="button"
+                  class="hyrox-fuel-selection-mode-button tab-button"
+                  data-hyrox-fuel-selection-mode="multiple"
+                >
+                  Multiple fuel sources
+                </button>
               </div>
 
               <div class="segment-tabs" role="tablist" aria-label="HYROX fuel source">
@@ -583,10 +651,20 @@
               </div>
 
               <div id="hyrox-professional-fuel-panel" class="fuel-panel">
-                <label>
-                  Race fuel
-                  <select id="hyrox-fuel-select" name="fuelKey"></select>
-                </label>
+                <div class="field-grid two-up">
+                  <label>
+                    Race fuel source
+                    <select id="hyrox-fuel-select" name="fuelKey"></select>
+                  </label>
+
+                  <label id="hyrox-fuel-quantity-field" hidden>
+                    Quantity to add
+                    <input id="hyrox-fuel-quantity" type="number" min="1" max="20" step="1" value="1" />
+                  </label>
+                </div>
+                <button id="add-hyrox-professional-fuel" type="button" class="button button-secondary" hidden>
+                  Add to kit
+                </button>
               </div>
 
               <fieldset id="hyrox-custom-fuel-panel" class="fuel-panel" hidden>
@@ -625,11 +703,35 @@
                   </label>
 
                   <label>
+                    Fuel type
+                    <select name="customFuelType">
+                      <option value="solid">Solid / gummies</option>
+                      <option value="standard-gel">Standard gel / chews</option>
+                      <option value="hydrogel">Hydrogel</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="field-grid two-up">
+                  <label id="hyrox-custom-quantity-field" hidden>
+                    Quantity to add
+                    <input type="number" name="customQuantity" min="1" max="20" step="1" value="1" />
+                  </label>
+
+                  <label>
                     Notes
                     <input type="text" name="customNotes" maxlength="70" placeholder="Optional" />
                   </label>
                 </div>
+                <button id="add-hyrox-custom-fuel" type="button" class="button button-secondary" hidden>
+                  Add custom item
+                </button>
               </fieldset>
+
+              <div id="hyrox-kit-output" class="module-output" hidden>
+                <p id="hyrox-fuel-kit-summary"></p>
+                <ul id="hyrox-fuel-kit-list" class="plain-list"></ul>
+              </div>
             </section>
 
             <div class="button-row">

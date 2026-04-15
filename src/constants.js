@@ -7,6 +7,7 @@ export const BUILT_IN_FUELS = [
     calories: 120,
     servingSizeGrams: 45,
     transportType: "dual",
+    fuelType: "standard-gel",
     notes: "2:1 maltodextrin to fructose ratio with unusually high sodium for runners who sweat heavily."
   },
   {
@@ -17,6 +18,7 @@ export const BUILT_IN_FUELS = [
     calories: 100,
     servingSizeGrams: 40,
     transportType: "dual",
+    fuelType: "hydrogel",
     notes: "Hydrogel format with very low sodium. Strong choice for gut comfort but usually needs separate electrolytes."
   },
   {
@@ -27,6 +29,7 @@ export const BUILT_IN_FUELS = [
     calories: 160,
     servingSizeGrams: 65,
     transportType: "dual",
+    fuelType: "hydrogel",
     notes: "High-density hydrogel option that reduces packet count when targeting 60 to 90 grams per hour."
   },
   {
@@ -37,6 +40,7 @@ export const BUILT_IN_FUELS = [
     calories: 87,
     servingSizeGrams: 60,
     transportType: "single",
+    fuelType: "standard-gel",
     notes: "Isotonic gel that is friendly for beginners, but it is less practical for very high carbohydrate targets."
   },
   {
@@ -47,6 +51,7 @@ export const BUILT_IN_FUELS = [
     calories: 158,
     servingSizeGrams: 60,
     transportType: "dual",
+    fuelType: "standard-gel",
     notes: "1:0.8 maltodextrin to fructose blend designed for 80 to 120 grams per hour with practiced guts."
   }
 ];

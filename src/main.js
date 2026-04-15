@@ -39,13 +39,33 @@ const heatExposureField = document.querySelector("#heat-exposure-field");
 const appTabButtons = document.querySelectorAll(".app-tab-button");
 const runningApp = document.querySelector("#running-app");
 const hyroxApp = document.querySelector("#hyrox-app");
-const tabButtons = calculatorForm.querySelectorAll(".segment-tabs .tab-button");
+const fuelModeButtons = calculatorForm.querySelectorAll("[data-fuel-mode]");
 const durationModeButtons = document.querySelectorAll(".duration-mode-button");
+const fuelSelectionModeButtons = document.querySelectorAll(".fuel-selection-mode-button");
+const hyroxFuelSelectionModeButtons = document.querySelectorAll(".hyrox-fuel-selection-mode-button");
 const professionalFuelPanel = document.querySelector("#professional-fuel-panel");
 const customFuelPanel = document.querySelector("#custom-fuel-panel");
+const addProfessionalFuelButton = document.querySelector("#add-professional-fuel");
+const addCustomFuelButton = document.querySelector("#add-custom-fuel");
+const fuelQuantityInput = document.querySelector("#fuel-quantity");
+const customQuantityInput = calculatorForm.elements.namedItem("customQuantity");
+const fuelQuantityField = document.querySelector("#fuel-quantity-field");
+const customQuantityField = document.querySelector("#custom-quantity-field");
+const fuelKitSummary = document.querySelector("#fuel-kit-summary");
+const fuelKitList = document.querySelector("#fuel-kit-list");
+const runningKitOutput = document.querySelector("#running-kit-output");
 const hyroxFuelTabButtons = document.querySelectorAll(".hyrox-fuel-tab-button");
 const hyroxProfessionalFuelPanel = document.querySelector("#hyrox-professional-fuel-panel");
 const hyroxCustomFuelPanel = document.querySelector("#hyrox-custom-fuel-panel");
+const addHyroxProfessionalFuelButton = document.querySelector("#add-hyrox-professional-fuel");
+const addHyroxCustomFuelButton = document.querySelector("#add-hyrox-custom-fuel");
+const hyroxFuelQuantityInput = document.querySelector("#hyrox-fuel-quantity");
+const hyroxCustomQuantityInput = hyroxForm.elements.namedItem("customQuantity");
+const hyroxFuelQuantityField = document.querySelector("#hyrox-fuel-quantity-field");
+const hyroxCustomQuantityField = document.querySelector("#hyrox-custom-quantity-field");
+const hyroxFuelKitSummary = document.querySelector("#hyrox-fuel-kit-summary");
+const hyroxFuelKitList = document.querySelector("#hyrox-fuel-kit-list");
+const hyroxKitOutput = document.querySelector("#hyrox-kit-output");
 
 const sessionSummary = document.querySelector("#session-summary");
 const safetyList = document.querySelector("#safety-list");
@@ -86,9 +106,13 @@ const state = {
   lastRun: readStorage(STORAGE_KEYS.lastRun, null),
   hyroxProfile: readStorage(STORAGE_KEYS.hyroxProfile, null),
   hyroxLastPlan: readStorage(STORAGE_KEYS.hyroxLastPlan, null),
+  fuelSelectionMode: "single",
+  hyroxFuelSelectionMode: "single",
   fuelMode: "professional",
   hyroxFuelMode: "professional",
   durationMode: "calculated",
+  runningFuelKit: [],
+  hyroxFuelKit: [],
   activeTab: readStorage(STORAGE_KEYS.activeTab, "running")
 };
 
@@ -141,6 +165,36 @@ function formatPaceDisplay(minPerKm) {
   return minPerKm ? `${formatClock(minPerKm)} /km` : "";
 }
 
+function formatFuelKitNames(fuelKitSummary) {
+  if (!fuelKitSummary?.uniqueNames?.length) {
+    return "your selected kit";
+  }
+
+  if (fuelKitSummary.uniqueNames.length === 1) {
+    return fuelKitSummary.uniqueNames[0];
+  }
+
+  if (fuelKitSummary.uniqueNames.length === 2) {
+    return `${fuelKitSummary.uniqueNames[0]} and ${fuelKitSummary.uniqueNames[1]}`;
+  }
+
+  return `${fuelKitSummary.uniqueNames.slice(0, -1).join(", ")}, and ${fuelKitSummary.uniqueNames.at(-1)}`;
+}
+
+function formatSingleFuelRequirement(fuelSummary) {
+  const item = fuelSummary?.items?.[0];
+  if (!item || !fuelSummary.totalServings) {
+    return "";
+  }
+
+  if (item.key === "custom-fuel") {
+    const totalGrams = round((item.servingSizeGrams ?? 0) * fuelSummary.totalServings, 0);
+    return `Total custom fuel needed: <strong>${totalGrams} g</strong>.`;
+  }
+
+  return `Total ${item.name} needed: <strong>${fuelSummary.totalServings} serving(s)</strong>.`;
+}
+
 function parseDurationDisplay(value) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -181,6 +235,196 @@ function syncHeroStatsPosition() {
       heroStatsHome.before(heroStats);
     }
     mobileHeroStatsAnchor.hidden = true;
+  }
+}
+
+function createKitItemId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function summarizeFuelKitItems(fuelKit) {
+  const totalCarbs = fuelKit.reduce((sum, item) => sum + item.carbsPerServing * item.quantity, 0);
+  const totalSodium = fuelKit.reduce((sum, item) => sum + item.sodiumPerServing * item.quantity, 0);
+  const totalServings = fuelKit.reduce((sum, item) => sum + item.quantity, 0);
+
+  return {
+    totalCarbs: round(totalCarbs, 0),
+    totalSodium: round(totalSodium, 0),
+    totalServings
+  };
+}
+
+function renderFuelKit(listElement, summaryElement, fuelKit, removeDatasetAttr, adjustDatasetAttr) {
+  const summary = summarizeFuelKitItems(fuelKit);
+  summaryElement.textContent = fuelKit.length
+    ? `${summary.totalServings} serving(s) in kit · ${summary.totalCarbs} g carbs · ${summary.totalSodium} mg sodium`
+    : "No fuel added yet. Build a kit before generating the plan.";
+
+  listElement.innerHTML = "";
+  fuelKit.forEach((item) => {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <div class="kit-item-header">
+        <strong>${item.name}</strong>
+        <div class="kit-item-actions">
+          <div class="kit-quantity-controls">
+            <button
+              type="button"
+              class="button button-secondary kit-stepper-button"
+              data-${adjustDatasetAttr}="${item.id}"
+              data-delta="-1"
+              ${item.quantity <= 1 ? "disabled" : ""}
+              aria-label="Decrease ${item.name} quantity"
+            >
+              -
+            </button>
+            <span class="kit-quantity-value">${item.quantity}</span>
+            <button
+              type="button"
+              class="button button-secondary kit-stepper-button"
+              data-${adjustDatasetAttr}="${item.id}"
+              data-delta="1"
+              aria-label="Increase ${item.name} quantity"
+            >
+              +
+            </button>
+          </div>
+          <button type="button" class="button button-secondary kit-remove-button" data-${removeDatasetAttr}="${item.id}">
+            Remove
+          </button>
+        </div>
+      </div>
+      ${item.carbsPerServing} g carbs per serving · ${item.sodiumPerServing} mg sodium per serving
+    `;
+    listElement.appendChild(li);
+  });
+}
+
+function buildProfessionalKitItem(select, quantityInput) {
+  const fuel = getFuelByKey(select.value);
+  return {
+    ...fuel,
+    id: createKitItemId(),
+    quantity: Math.max(1, Number(quantityInput.value || 1)),
+    addedOrder: Date.now()
+  };
+}
+
+function buildCustomKitItem(form) {
+  const name = form.elements.namedItem("customFuelName").value.trim();
+  const servingSizeGrams = Number(form.elements.namedItem("customServingSizeGrams").value);
+  const carbsPer100g = Number(form.elements.namedItem("customCarbsPer100g").value);
+  const sodiumPer100g = Number(form.elements.namedItem("customSodiumPer100g").value);
+  const quantity = Number(form.elements.namedItem("customQuantity").value || 1);
+  const notes = form.elements.namedItem("customNotes").value.trim();
+
+  if (!name || !servingSizeGrams || Number.isNaN(carbsPer100g) || Number.isNaN(sodiumPer100g)) {
+    return null;
+  }
+
+  return {
+    key: "custom-fuel",
+    id: createKitItemId(),
+    name,
+    servingSizeGrams,
+    carbsPerServing: round((carbsPer100g / 100) * servingSizeGrams, 1),
+    sodiumPerServing: round((sodiumPer100g / 100) * servingSizeGrams, 0),
+    calories: round(((carbsPer100g / 100) * servingSizeGrams) * 4, 0),
+    transportType: form.elements.namedItem("customTransportType").value,
+    fuelType: form.elements.namedItem("customFuelType").value,
+    notes: notes || "Custom fuel source",
+    quantity: Math.max(1, quantity),
+    addedOrder: Date.now()
+  };
+}
+
+function buildSingleCustomFuel(form) {
+  const item = buildCustomKitItem(form);
+  if (!item) {
+    return null;
+  }
+
+  return {
+    ...item,
+    quantity: 1
+  };
+}
+
+function renderRunningFuelKit() {
+  renderFuelKit(
+    fuelKitList,
+    fuelKitSummary,
+    state.runningFuelKit,
+    "running-fuel-remove",
+    "running-fuel-adjust"
+  );
+}
+
+function renderHyroxFuelKit() {
+  renderFuelKit(
+    hyroxFuelKitList,
+    hyroxFuelKitSummary,
+    state.hyroxFuelKit,
+    "hyrox-fuel-remove",
+    "hyrox-fuel-adjust"
+  );
+}
+
+function addFuelKitItem(targetKey, item) {
+  if (!item) {
+    return false;
+  }
+
+  state[targetKey] = [...state[targetKey], item];
+  return true;
+}
+
+function removeFuelKitItem(targetKey, itemId) {
+  state[targetKey] = state[targetKey].filter((item) => item.id !== itemId);
+}
+
+function adjustFuelKitItemQuantity(targetKey, itemId, delta) {
+  state[targetKey] = state[targetKey].map((item) => {
+    if (item.id !== itemId) {
+      return item;
+    }
+
+    return {
+      ...item,
+      quantity: Math.max(1, item.quantity + delta)
+    };
+  });
+}
+
+function updateRunningFuelSelectionModeUi() {
+  const useMultiple = state.fuelSelectionMode === "multiple";
+  fuelQuantityField.hidden = !useMultiple;
+  customQuantityField.hidden = !useMultiple;
+  addProfessionalFuelButton.hidden = !useMultiple;
+  addCustomFuelButton.hidden = !useMultiple;
+  runningKitOutput.hidden = !useMultiple;
+  fuelQuantityInput.disabled = !useMultiple;
+  customQuantityInput.disabled = !useMultiple;
+
+  if (!useMultiple) {
+    fuelQuantityInput.value = 1;
+    customQuantityInput.value = 1;
+  }
+}
+
+function updateHyroxFuelSelectionModeUi() {
+  const useMultiple = state.hyroxFuelSelectionMode === "multiple";
+  hyroxFuelQuantityField.hidden = !useMultiple;
+  hyroxCustomQuantityField.hidden = !useMultiple;
+  addHyroxProfessionalFuelButton.hidden = !useMultiple;
+  addHyroxCustomFuelButton.hidden = !useMultiple;
+  hyroxKitOutput.hidden = !useMultiple;
+  hyroxFuelQuantityInput.disabled = !useMultiple;
+  hyroxCustomQuantityInput.disabled = !useMultiple;
+
+  if (!useMultiple) {
+    hyroxFuelQuantityInput.value = 1;
+    hyroxCustomQuantityInput.value = 1;
   }
 }
 
@@ -316,22 +560,26 @@ function setSelectToNumericValue(select, value, labelPrefix) {
 function setFuelMode(mode) {
   state.fuelMode = mode;
 
-  for (const button of tabButtons) {
+  for (const button of fuelModeButtons) {
     button.classList.toggle("is-active", button.dataset.fuelMode === mode);
     button.setAttribute("aria-selected", button.dataset.fuelMode === mode ? "true" : "false");
   }
 
-  const customFields = customFuelPanel.querySelectorAll("input, select");
   const useCustom = mode === "custom";
   professionalFuelPanel.hidden = useCustom;
   customFuelPanel.hidden = !useCustom;
+  updateRunningFuelSelectionModeUi();
+}
 
-  for (const field of customFields) {
-    field.disabled = !useCustom;
-    if (field.name !== "customNotes") {
-      field.required = useCustom;
-    }
+function setFuelSelectionMode(mode) {
+  state.fuelSelectionMode = mode;
+
+  for (const button of fuelSelectionModeButtons) {
+    button.classList.toggle("is-active", button.dataset.fuelSelectionMode === mode);
+    button.setAttribute("aria-selected", button.dataset.fuelSelectionMode === mode ? "true" : "false");
   }
+
+  updateRunningFuelSelectionModeUi();
 }
 
 function setDurationMode(mode) {
@@ -375,17 +623,21 @@ function setHyroxFuelMode(mode) {
     button.setAttribute("aria-selected", button.dataset.hyroxFuelMode === mode ? "true" : "false");
   }
 
-  const customFields = hyroxCustomFuelPanel.querySelectorAll("input, select");
   const useCustom = mode === "custom";
   hyroxProfessionalFuelPanel.hidden = useCustom;
   hyroxCustomFuelPanel.hidden = !useCustom;
+  updateHyroxFuelSelectionModeUi();
+}
 
-  for (const field of customFields) {
-    field.disabled = !useCustom;
-    if (field.name !== "customNotes") {
-      field.required = useCustom;
-    }
+function setHyroxFuelSelectionMode(mode) {
+  state.hyroxFuelSelectionMode = mode;
+
+  for (const button of hyroxFuelSelectionModeButtons) {
+    button.classList.toggle("is-active", button.dataset.hyroxFuelSelectionMode === mode);
+    button.setAttribute("aria-selected", button.dataset.hyroxFuelSelectionMode === mode ? "true" : "false");
   }
+
+  updateHyroxFuelSelectionModeUi();
 }
 
 function setAppTab(tab) {
@@ -426,12 +678,16 @@ function fillCalculatorDefaults() {
     humidityPercent: 58,
     acclimatizationDays: 8,
     fuelKey: "sis-beta-fuel",
+    fuelSelectionMode: "single",
     fuelMode: "professional",
+    fuelingKit: [],
     customFuelName: "Maple syrup bottle",
     customServingSizeGrams: 30,
     customCarbsPer100g: 86,
     customSodiumPer100g: 8,
     customTransportType: "single",
+    customFuelType: "solid",
+    customQuantity: 1,
     customNotes: ""
   };
   const defaults = {
@@ -464,8 +720,11 @@ function fillCalculatorDefaults() {
   }, PACE_OPTIONS[0]);
   paceSelect.value = String(nearestPace.value);
   state.durationMode = defaults.durationMode ?? "calculated";
+  state.runningFuelKit = Array.isArray(defaults.fuelingKit) ? defaults.fuelingKit : baseDefaults.fuelingKit;
+  setFuelSelectionMode(defaults.fuelSelectionMode ?? "single");
   setFuelMode(defaults.fuelMode ?? "professional");
   setDurationMode(state.durationMode);
+  renderRunningFuelKit();
   updateCalculatedDuration();
   updateHeatExposureVisibility();
 
@@ -503,12 +762,16 @@ function fillHyroxDefaults() {
     runPaceMinPerKm: 5.25,
     transitionSeconds: 42,
     fuelKey: "sis-beta-fuel",
+    fuelSelectionMode: "single",
     fuelMode: "professional",
+    fuelingKit: [],
     customFuelName: "Liquid carbs flask",
     customServingSizeGrams: 40,
     customCarbsPer100g: 75,
     customSodiumPer100g: 450,
     customTransportType: "dual",
+    customFuelType: "standard-gel",
+    customQuantity: 1,
     customNotes: "",
     ...(state.hyroxProfile ?? {})
   };
@@ -526,6 +789,8 @@ function fillHyroxDefaults() {
   hyroxForm.elements.namedItem("customCarbsPer100g").value = defaults.customCarbsPer100g;
   hyroxForm.elements.namedItem("customSodiumPer100g").value = defaults.customSodiumPer100g;
   hyroxForm.elements.namedItem("customTransportType").value = defaults.customTransportType;
+  hyroxForm.elements.namedItem("customFuelType").value = defaults.customFuelType;
+  hyroxForm.elements.namedItem("customQuantity").value = defaults.customQuantity;
   hyroxForm.elements.namedItem("customNotes").value = defaults.customNotes;
 
   setSelectToNumericValue(hyroxSweatRateSelect, defaults.sweatRateLHr, "Indoor sweat rate");
@@ -546,7 +811,10 @@ function fillHyroxDefaults() {
     }
   }
 
+  state.hyroxFuelKit = Array.isArray(defaults.fuelingKit) ? defaults.fuelingKit : [];
+  setHyroxFuelSelectionMode(defaults.fuelSelectionMode ?? "single");
   setHyroxFuelMode(defaults.fuelMode ?? "professional");
+  renderHyroxFuelKit();
   updateHyroxPredictedDuration();
 }
 
@@ -594,33 +862,60 @@ function updateHeatExposureVisibility() {
   acclimatizationField.required = isRelevant;
 }
 
-function buildCustomFuelFromForm(form) {
-  const name = form.elements.namedItem("customFuelName").value.trim();
-  const servingSizeGrams = Number(form.elements.namedItem("customServingSizeGrams").value);
-  const carbsPer100g = Number(form.elements.namedItem("customCarbsPer100g").value);
-  const sodiumPer100g = Number(form.elements.namedItem("customSodiumPer100g").value);
-  const notes = form.elements.namedItem("customNotes").value.trim();
+function getRunningFuelKit() {
+  return state.runningFuelKit;
+}
 
-  return {
-    key: "custom-fuel",
-    name,
-    servingSizeGrams,
-    carbsPerServing: round((carbsPer100g / 100) * servingSizeGrams, 1),
-    sodiumPerServing: round((sodiumPer100g / 100) * servingSizeGrams, 0),
-    calories: round(((carbsPer100g / 100) * servingSizeGrams) * 4, 0),
-    transportType: form.elements.namedItem("customTransportType").value,
-    notes: notes || "Custom fuel source"
-  };
+function getHyroxFuelKit() {
+  return state.hyroxFuelKit;
 }
 
 function getSelectedFuel() {
-  return state.fuelMode === "custom" ? buildCustomFuelFromForm(calculatorForm) : getFuelByKey(fuelSelect.value);
+  return state.fuelMode === "custom" ? buildSingleCustomFuel(calculatorForm) : getFuelByKey(fuelSelect.value);
 }
 
 function getSelectedHyroxFuel() {
-  return state.hyroxFuelMode === "custom"
-    ? buildCustomFuelFromForm(hyroxForm)
-    : getFuelByKey(hyroxFuelSelect.value);
+  return state.hyroxFuelMode === "custom" ? buildSingleCustomFuel(hyroxForm) : getFuelByKey(hyroxFuelSelect.value);
+}
+
+function ensureSingleFuelSelection(form, selectedFuel) {
+  const nameField = form.elements.namedItem("customFuelName");
+  if (selectedFuel) {
+    nameField.setCustomValidity("");
+    return true;
+  }
+
+  nameField.setCustomValidity("Fill in a valid custom fuel source or switch back to a professional fuel.");
+  nameField.reportValidity();
+  return false;
+}
+
+function getRunningFuelSetup() {
+  if (state.fuelSelectionMode === "multiple") {
+    return {
+      mode: "multiple",
+      fuelingKit: getRunningFuelKit()
+    };
+  }
+
+  return {
+    mode: "single",
+    selectedFuel: getSelectedFuel()
+  };
+}
+
+function getHyroxFuelSetup() {
+  if (state.hyroxFuelSelectionMode === "multiple") {
+    return {
+      mode: "multiple",
+      fuelingKit: getHyroxFuelKit()
+    };
+  }
+
+  return {
+    mode: "single",
+    selectedFuel: getSelectedHyroxFuel()
+  };
 }
 
 function getCalculatorInput() {
@@ -660,13 +955,17 @@ function getCalculatorInput() {
       temperatureC >= HEAT_EXPOSURE_THRESHOLD_C
         ? Number(calculatorForm.elements.namedItem("acclimatizationDays").value)
         : 0,
-    fuelKey: fuelSelect.value,
+    fuelSelectionMode: state.fuelSelectionMode,
+    fuelingKit: getRunningFuelKit(),
+    fuelSetup: getRunningFuelSetup(),
     fuelMode: state.fuelMode,
     customFuelName: calculatorForm.elements.namedItem("customFuelName").value,
     customServingSizeGrams: calculatorForm.elements.namedItem("customServingSizeGrams").value,
     customCarbsPer100g: calculatorForm.elements.namedItem("customCarbsPer100g").value,
     customSodiumPer100g: calculatorForm.elements.namedItem("customSodiumPer100g").value,
     customTransportType: calculatorForm.elements.namedItem("customTransportType").value,
+    customFuelType: calculatorForm.elements.namedItem("customFuelType").value,
+    customQuantity: calculatorForm.elements.namedItem("customQuantity").value,
     customNotes: calculatorForm.elements.namedItem("customNotes").value
   };
 }
@@ -679,13 +978,17 @@ function getHyroxInput() {
     sweatSaltiness: hyroxForm.elements.namedItem("sweatSaltiness").value,
     runPaceMinPerKm: Number(hyroxForm.elements.namedItem("runPaceMinPerKm").value),
     transitionSeconds: Number(hyroxForm.elements.namedItem("transitionSeconds").value),
-    fuelKey: hyroxFuelSelect.value,
+    fuelSelectionMode: state.hyroxFuelSelectionMode,
+    fuelingKit: getHyroxFuelKit(),
+    fuelSetup: getHyroxFuelSetup(),
     fuelMode: state.hyroxFuelMode,
     customFuelName: hyroxForm.elements.namedItem("customFuelName").value,
     customServingSizeGrams: hyroxForm.elements.namedItem("customServingSizeGrams").value,
     customCarbsPer100g: hyroxForm.elements.namedItem("customCarbsPer100g").value,
     customSodiumPer100g: hyroxForm.elements.namedItem("customSodiumPer100g").value,
     customTransportType: hyroxForm.elements.namedItem("customTransportType").value,
+    customFuelType: hyroxForm.elements.namedItem("customFuelType").value,
+    customQuantity: hyroxForm.elements.namedItem("customQuantity").value,
     customNotes: hyroxForm.elements.namedItem("customNotes").value,
     stationEstimates: HYROX_STATIONS.map((station) => ({
       key: station.key,
@@ -695,7 +998,9 @@ function getHyroxInput() {
   };
 }
 
-function renderRunPlan(plan, run, fuel) {
+function renderRunPlan(plan, run) {
+  const remainingCarbGap = Math.max(round(plan.totalCarbsGoal - plan.fuelTimeline.actualCarbsTotal, 0), 0);
+  const excessCarbs = Math.max(round(plan.fuelTimeline.actualCarbsTotal - plan.totalCarbsGoal, 0), 0);
   heroCarbTarget.textContent = `${round(plan.fuelTimeline.actualCarbsTotal, 0)} g`;
   heroFluidTarget.textContent = `${plan.totalFluidL} L`;
   heroSodiumTarget.textContent = `${plan.totalExternalSodiumMg} mg`;
@@ -712,6 +1017,35 @@ function renderRunPlan(plan, run, fuel) {
       <strong>${plan.totalFluidL} L water total</strong>, and
       <strong>${plan.totalExternalSodiumMg} mg sodium total in the water</strong>.
     </p>
+    <p>
+      ${plan.fuelPlanMode === "multiple" ? "Current kit" : "Selected fuel"}:
+      <strong>${formatFuelKitNames(plan.fuelKitSummary)}</strong> containing
+      <strong>${round(plan.fuelKitSummary.totalCarbs, 0)} g carbs</strong> and
+      <strong>${round(plan.fuelKitSummary.totalSodium, 0)} mg sodium</strong> across
+      <strong>${plan.fuelKitSummary.totalServings} serving(s)</strong>.
+    </p>
+    ${
+      plan.fuelPlanMode === "single" && plan.totalCarbsGoal > 0
+        ? `<p>${formatSingleFuelRequirement(plan.fuelKitSummary)}</p>`
+        : ""
+    }
+    ${
+      plan.fuelPlanMode === "multiple" && plan.totalCarbsGoal > 0
+        ? `
+          <p>
+            Carbohydrate target for this run: <strong>${round(plan.totalCarbsGoal, 0)} g</strong>.
+            Current kit total: <strong>${round(plan.fuelTimeline.actualCarbsTotal, 0)} g</strong>.
+            ${
+              excessCarbs > 0
+                ? `That is <strong>${excessCarbs} g too much</strong>.`
+                : remainingCarbGap > 0
+                  ? `You are still <strong>${remainingCarbGap} g short</strong>.`
+                  : "Your kit matches the target closely."
+            }
+          </p>
+        `
+        : ""
+    }
   `;
 
   safetyList.innerHTML = "";
@@ -728,6 +1062,15 @@ function renderRunPlan(plan, run, fuel) {
   }
 
   fuelTimeline.innerHTML = "";
+  if (plan.fuelPlanMode === "multiple" && plan.totalCarbsGoal > 0 && remainingCarbGap > 0) {
+    const deficitItem = document.createElement("li");
+    deficitItem.innerHTML = `
+      <span class="time">Fuel gap</span>
+      You still need to add about <strong>${remainingCarbGap} g of carbohydrates</strong> to cover this run.
+    `;
+    fuelTimeline.appendChild(deficitItem);
+  }
+
   if (plan.preStartFuel) {
     const preStartItem = document.createElement("li");
     preStartItem.innerHTML = `
@@ -739,7 +1082,10 @@ function renderRunPlan(plan, run, fuel) {
 
   if (plan.fuelTimeline.events.length === 0) {
     const li = document.createElement("li");
-    li.textContent = "Skip intra-run carbohydrates. Focus on water and electrolytes only.";
+    li.textContent =
+      plan.fuelPlanMode === "multiple" && plan.totalCarbsGoal > 0 && remainingCarbGap > 0
+        ? "Add more fuel to your kit, then regenerate the plan to place the carb events."
+        : "Skip intra-run carbohydrates. Focus on water and electrolytes only.";
     fuelTimeline.appendChild(li);
   } else {
     for (const event of plan.fuelTimeline.events) {
@@ -748,7 +1094,7 @@ function renderRunPlan(plan, run, fuel) {
       );
       const distanceMarker = formatFuelDistanceMarker(event.minute, run.paceMinPerKm, run.distanceKm);
       const li = document.createElement("li");
-      li.innerHTML = `<span class="time">${formatClock(event.minute)} · ${distanceMarker}</span> Take <strong>1 full serving</strong> of ${fuel.name} (${event.carbs}g carbs)${
+      li.innerHTML = `<span class="time">${formatClock(event.minute)} · ${distanceMarker}</span> Take <strong>1 full serving</strong> of ${event.name} (${event.carbs}g carbs)${
         pairedDrinkEvent ? ` and drink ${pairedDrinkEvent.sipMl} mL at the same time.` : "."
       }`;
       fuelTimeline.appendChild(li);
@@ -782,6 +1128,16 @@ function renderRunPlan(plan, run, fuel) {
         `;
   hydrationTimeline.appendChild(summaryItem);
 
+  if (plan.scheduledFuelSodiumMg > 0) {
+    const fuelSodiumItem = document.createElement("li");
+    fuelSodiumItem.innerHTML = `
+      <span class="time">Fuel sodium</span>
+      The scheduled fuel events already provide <strong>${round(plan.scheduledFuelSodiumMg, 0)} mg sodium</strong>, so only the remaining
+      <strong>${plan.totalExternalSodiumMg} mg</strong> needs to go into the water.
+    `;
+    hydrationTimeline.appendChild(fuelSodiumItem);
+  }
+
   if (plan.hydrationPlan.totalWaterMl > 0) {
     const flaskItem = document.createElement("li");
     flaskItem.innerHTML = `
@@ -793,9 +1149,10 @@ function renderRunPlan(plan, run, fuel) {
   }
 
   for (const event of plan.hydrationPlan.events) {
+    const distanceMarker = formatFuelDistanceMarker(event.minute, run.paceMinPerKm, run.distanceKm);
     const li = document.createElement("li");
     li.innerHTML = `
-      <span class="time">${formatClock(event.minute)}</span>
+      <span class="time">${formatClock(event.minute)} · ${distanceMarker}</span>
       ${
         event.pairedWithFuel
           ? `Drink ${event.sipMl} mL with your carb serving, which is about ${formatFlaskPart(event.sipFlaskFraction)}.`
@@ -810,10 +1167,10 @@ function renderRunPlan(plan, run, fuel) {
     plan.fuelingMode === "fixed"
       ? `${plan.totalCarbsGoal} g total physiological carbohydrate target`
       : `${plan.requestedCarbsHr || 0} g/hr physiological carbohydrate target`,
-    `${plan.fuelTimeline.actualCarbsHr || 0} g/hr delivered after rounding to full servings`,
+    `${plan.fuelTimeline.actualCarbsHr || 0} g/hr delivered by the current kit`,
     `${plan.targetFluidLHr} L/hr water target from sweat-rate scaling`,
     `${plan.targetSodiumMgHr} mg/hr sodium target before gel contribution`,
-    `${plan.fuelSodiumMgHr} mg/hr sodium coming from ${fuel.name}`,
+    `${plan.fuelSodiumMgHr} mg/hr sodium coming from the selected fuel kit`,
     `${plan.externalSodiumMgHr} mg/hr still needed in the water`,
     plan.hydrationPlan.intervalMinutes > 0
       ? `${plan.hydrationPlan.sipMl} mL every ${plan.hydrationPlan.intervalMinutes} minutes`
@@ -828,18 +1185,23 @@ function renderRunPlan(plan, run, fuel) {
 
   productNotes.innerHTML = "";
   [
-    fuel.notes,
-    fuel.transportType === "dual"
-      ? "Dual-transport carbohydrates support higher hourly intake once your gut is trained."
-      : "Single-source carbohydrates are best kept near or below 60 g/hr."
-  ].forEach((item) => {
+    ...plan.fuelKitSummary.uniqueNotes,
+    plan.fuelKitSummary.hasDualTransport
+      ? "This kit includes dual-transport carbohydrates, which helps when you are targeting higher hourly intake."
+      : "This kit relies on single-source carbohydrates, so practical intake stays closer to 60 g/hr.",
+    plan.fuelKitSummary.hasMixedHydrogelKit
+      ? "Hydrogels and standard sugars are deliberately spaced apart in the timeline to reduce stomach overload."
+      : null
+  ]
+    .filter(Boolean)
+    .forEach((item) => {
     const li = document.createElement("li");
     li.textContent = item;
     productNotes.appendChild(li);
   });
 }
 
-function renderHyroxPlan(plan, input, fuel) {
+function renderHyroxPlan(plan, input) {
   heroCarbTarget.textContent = `${round(plan.actualCarbsTotal, 0)} g`;
   heroFluidTarget.textContent = `${plan.hydrationPlan.totalFluidL} L`;
   heroSodiumTarget.textContent = `${plan.hydrationPlan.totalExternalSodiumMg} mg`;
@@ -854,7 +1216,13 @@ function renderHyroxPlan(plan, input, fuel) {
     <p>
       Carb load <strong>${plan.carbLoadingRange[0]}-${plan.carbLoadingRange[1]} g per day</strong> across the final
       48 to 72 hours. In-race plan uses <strong>${round(plan.actualCarbsTotal, 0)} g</strong> total from
-      ${fuel.name} with a hydration plan of <strong>${plan.hydrationPlan.totalFluidL} L</strong>.
+      <strong>${formatFuelKitNames(plan.fuelKitSummary)}</strong> with a hydration plan of <strong>${plan.hydrationPlan.totalFluidL} L</strong>.
+    </p>
+    <p>
+      ${plan.fuelPlanMode === "multiple" ? "Current race kit" : "Selected race fuel"} provides
+      <strong>${round(plan.fuelKitSummary.totalCarbs, 0)} g carbs</strong> and
+      <strong>${round(plan.fuelKitSummary.totalSodium, 0)} mg sodium</strong> across
+      <strong>${plan.fuelKitSummary.totalServings} serving(s)</strong>.
     </p>
   `;
 
@@ -916,6 +1284,10 @@ function renderHyroxPlan(plan, input, fuel) {
       text: `Plan about ${plan.hydrationPlan.totalFluidL} L total, with roughly ${plan.hydrationPlan.totalExternalSodiumMg} mg sodium in the carry bottle or flask system.`
     },
     {
+      label: "Fuel sodium",
+      text: `Your race kit already supplies ${round(plan.fuelKitSummary.totalSodium, 0)} mg sodium, so the water only needs to cover the remaining electrolyte gap.`
+    },
+    {
       label: "Flasks",
       text: `That is about ${plan.hydrationPlan.flaskCountEquivalent} flasks of 500 mL, or ${plan.hydrationPlan.sodiumPer500MlFlask} mg sodium per 500 mL flask.`
     },
@@ -969,6 +1341,90 @@ function renderHyroxPlan(plan, input, fuel) {
       <tbody>${rows}</tbody>
     </table>
   `;
+}
+
+function handleAddProfessionalFuel(event) {
+  event.preventDefault();
+  if (addFuelKitItem("runningFuelKit", buildProfessionalKitItem(fuelSelect, fuelQuantityInput))) {
+    renderRunningFuelKit();
+  }
+}
+
+function handleAddCustomFuel(event) {
+  event.preventDefault();
+  const customItem = buildCustomKitItem(calculatorForm);
+  if (!customItem) {
+    calculatorForm.reportValidity();
+    return;
+  }
+
+  if (addFuelKitItem("runningFuelKit", customItem)) {
+    renderRunningFuelKit();
+  }
+}
+
+function handleAddHyroxProfessionalFuel(event) {
+  event.preventDefault();
+  if (addFuelKitItem("hyroxFuelKit", buildProfessionalKitItem(hyroxFuelSelect, hyroxFuelQuantityInput))) {
+    renderHyroxFuelKit();
+  }
+}
+
+function handleAddHyroxCustomFuel(event) {
+  event.preventDefault();
+  const customItem = buildCustomKitItem(hyroxForm);
+  if (!customItem) {
+    hyroxForm.reportValidity();
+    return;
+  }
+
+  if (addFuelKitItem("hyroxFuelKit", customItem)) {
+    renderHyroxFuelKit();
+  }
+}
+
+function handleFuelKitClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const adjustButton = target?.closest("[data-running-fuel-adjust]");
+  if (adjustButton) {
+    adjustFuelKitItemQuantity(
+      "runningFuelKit",
+      adjustButton.dataset.runningFuelAdjust,
+      Number(adjustButton.dataset.delta)
+    );
+    renderRunningFuelKit();
+    return;
+  }
+
+  const removeButton = target?.closest("[data-running-fuel-remove]");
+  if (!removeButton) {
+    return;
+  }
+
+  removeFuelKitItem("runningFuelKit", removeButton.dataset.runningFuelRemove);
+  renderRunningFuelKit();
+}
+
+function handleHyroxFuelKitClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const adjustButton = target?.closest("[data-hyrox-fuel-adjust]");
+  if (adjustButton) {
+    adjustFuelKitItemQuantity(
+      "hyroxFuelKit",
+      adjustButton.dataset.hyroxFuelAdjust,
+      Number(adjustButton.dataset.delta)
+    );
+    renderHyroxFuelKit();
+    return;
+  }
+
+  const removeButton = target?.closest("[data-hyrox-fuel-remove]");
+  if (!removeButton) {
+    return;
+  }
+
+  removeFuelKitItem("hyroxFuelKit", removeButton.dataset.hyroxFuelRemove);
+  renderHyroxFuelKit();
 }
 
 function renderSweatRate(result) {
@@ -1044,6 +1500,12 @@ function handleCalculatorSubmit(event) {
     return;
   }
   durationDisplay.setCustomValidity("");
+  if (
+    formValues.fuelSelectionMode === "single" &&
+    !ensureSingleFuelSelection(calculatorForm, formValues.fuelSetup.selectedFuel)
+  ) {
+    return;
+  }
   const profile = {
     sex: formValues.sex,
     weightKg: formValues.weightKg,
@@ -1054,19 +1516,19 @@ function handleCalculatorSubmit(event) {
   const run = {
     runType: formValues.runType,
     distanceKm: formValues.distanceKm,
+    durationMinutes: formValues.durationMinutes,
     paceMinPerKm: formValues.paceMinPerKm,
     paceLabel: formValues.paceLabel,
     temperatureC: formValues.temperatureC,
     humidityPercent: formValues.humidityPercent,
     acclimatizationDays: formValues.acclimatizationDays
   };
-  const fuel = getSelectedFuel();
-  const plan = buildRunPlan(profile, run, fuel);
+  const plan = buildRunPlan(profile, run, formValues.fuelSetup);
 
-  renderRunPlan(plan, run, fuel);
+  renderRunPlan(plan, run);
 
   state.profile = { ...formValues };
-  state.lastRun = { run, fuel, plan };
+  state.lastRun = { run, fuelSetup: formValues.fuelSetup, plan };
   writeStorage(STORAGE_KEYS.profile, state.profile);
   writeStorage(STORAGE_KEYS.lastRun, state.lastRun);
 
@@ -1079,6 +1541,12 @@ function handleCalculatorSubmit(event) {
 function handleHyroxSubmit(event) {
   event.preventDefault();
   const formValues = getHyroxInput();
+  if (
+    formValues.fuelSelectionMode === "single" &&
+    !ensureSingleFuelSelection(hyroxForm, formValues.fuelSetup.selectedFuel)
+  ) {
+    return;
+  }
   const profile = {
     sex: formValues.sex,
     weightKg: formValues.weightKg,
@@ -1090,16 +1558,15 @@ function handleHyroxSubmit(event) {
     transitionSeconds: formValues.transitionSeconds,
     stationEstimates: formValues.stationEstimates
   };
-  const fuel = getSelectedHyroxFuel();
-  const plan = buildHyroxPlan(profile, settings, fuel);
+  const plan = buildHyroxPlan(profile, settings, formValues.fuelSetup);
 
-  renderHyroxPlan(plan, formValues, fuel);
+  renderHyroxPlan(plan, formValues);
 
   state.hyroxProfile = {
     ...formValues,
     ...Object.fromEntries(formValues.stationEstimates.map((station) => [station.key, station.minutes]))
   };
-  state.hyroxLastPlan = { settings, fuel, plan };
+  state.hyroxLastPlan = { settings, fuelSetup: formValues.fuelSetup, plan };
   writeStorage(STORAGE_KEYS.hyroxProfile, state.hyroxProfile);
   writeStorage(STORAGE_KEYS.hyroxLastPlan, state.hyroxLastPlan);
 }
@@ -1157,6 +1624,12 @@ function bootstrap() {
   sweatForm.addEventListener("submit", handleSweatSubmit);
   gutForm.addEventListener("submit", handleGutSubmit);
   macroForm.addEventListener("submit", handleMacroSubmit);
+  addProfessionalFuelButton.addEventListener("click", handleAddProfessionalFuel);
+  addCustomFuelButton.addEventListener("click", handleAddCustomFuel);
+  addHyroxProfessionalFuelButton.addEventListener("click", handleAddHyroxProfessionalFuel);
+  addHyroxCustomFuelButton.addEventListener("click", handleAddHyroxCustomFuel);
+  fuelKitList.addEventListener("click", handleFuelKitClick);
+  hyroxFuelKitList.addEventListener("click", handleHyroxFuelKitClick);
   calculatorForm.elements.namedItem("distanceKm").addEventListener("input", updateCalculatedDuration);
   calculatorForm.elements.namedItem("distanceKm").addEventListener("input", updateManualPaceDisplay);
   paceSelect.addEventListener("change", updateCalculatedDuration);
@@ -1178,8 +1651,12 @@ function bootstrap() {
     hyroxForm.elements.namedItem(station.key).addEventListener("input", updateHyroxPredictedDuration);
   });
 
-  for (const button of tabButtons) {
+  for (const button of fuelModeButtons) {
     button.addEventListener("click", () => setFuelMode(button.dataset.fuelMode));
+  }
+
+  for (const button of fuelSelectionModeButtons) {
+    button.addEventListener("click", () => setFuelSelectionMode(button.dataset.fuelSelectionMode));
   }
 
   for (const button of durationModeButtons) {
@@ -1188,6 +1665,10 @@ function bootstrap() {
 
   for (const button of hyroxFuelTabButtons) {
     button.addEventListener("click", () => setHyroxFuelMode(button.dataset.hyroxFuelMode));
+  }
+
+  for (const button of hyroxFuelSelectionModeButtons) {
+    button.addEventListener("click", () => setHyroxFuelSelectionMode(button.dataset.hyroxFuelSelectionMode));
   }
 
   for (const button of appTabButtons) {

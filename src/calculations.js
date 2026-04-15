@@ -226,21 +226,274 @@ function makeFuelTimeline({ durationMinutes, targetCarbsHr, totalCarbs, mode, fu
     events,
     actualCarbsTotal: round(actualCarbsTotal, 1),
     actualCarbsHr: round(actualCarbsTotal / durationHours, 1),
-    actualServingsTotal: servingsTotal
+    actualServingsTotal: servingsTotal,
+    totalSodium: round(servingsTotal * fuel.sodiumPerServing, 0),
+    timelineWarning: null
   };
 }
 
-function getPreStartFuelRecommendation(runType, durationMinutes, fuel) {
+function getPreStartFuelRecommendation(runType, durationMinutes, fuelingKit) {
   if (!["long", "race"].includes(runType) || durationMinutes < 75) {
+    return null;
+  }
+
+  const preStartItem = selectPreStartFuelItem(fuelingKit);
+  if (!preStartItem) {
     return null;
   }
 
   return {
     minute: -15,
-    label: `Take 1 full ${fuel.name} 10 to 15 minutes before the start with a few sips of water.`,
+    label: `Take 1 serving of ${preStartItem.name} 10 to 15 minutes before the start with a few sips of water.`,
     warning:
       "Do not take it too early while you are still standing around. More than 15 to 30 minutes early can trigger an insulin spike and leave you flat on the start line."
   };
+}
+
+const TIMELINE_TYPE_PRIORITY = {
+  solid: 0,
+  "standard-gel": 1,
+  drink: 1,
+  hydrogel: 2
+};
+
+const PRESTART_TYPE_PRIORITY = {
+  "standard-gel": 0,
+  hydrogel: 1,
+  drink: 1,
+  solid: 2
+};
+
+function normalizeFuelingKit(fuelingKit) {
+  if (!Array.isArray(fuelingKit)) {
+    return [];
+  }
+
+  return fuelingKit
+    .filter((item) => item && Number(item.quantity) > 0)
+    .map((item, index) => ({
+      ...item,
+      quantity: Math.max(1, Math.round(Number(item.quantity))),
+      fuelType: item.fuelType ?? "standard-gel",
+      transportType: item.transportType ?? "single",
+      addedOrder: Number(item.addedOrder ?? index)
+    }));
+}
+
+function expandFuelingKit(fuelingKit) {
+  return normalizeFuelingKit(fuelingKit).flatMap((item) =>
+    Array.from({ length: item.quantity }, (_, index) => ({
+      ...item,
+      unitIndex: index
+    }))
+  );
+}
+
+function summarizeFuelingKit(fuelingKit) {
+  const normalizedKit = normalizeFuelingKit(fuelingKit);
+  const totalCarbs = normalizedKit.reduce((sum, item) => sum + item.carbsPerServing * item.quantity, 0);
+  const totalSodium = normalizedKit.reduce((sum, item) => sum + item.sodiumPerServing * item.quantity, 0);
+  const totalCalories = normalizedKit.reduce((sum, item) => sum + (item.calories ?? 0) * item.quantity, 0);
+  const totalServings = normalizedKit.reduce((sum, item) => sum + item.quantity, 0);
+  const hasDualTransport = normalizedKit.some((item) => item.transportType === "dual");
+  const hasHydrogel = normalizedKit.some((item) => item.fuelType === "hydrogel");
+  const hasStandardSugar = normalizedKit.some((item) => item.fuelType !== "hydrogel");
+  const uniqueNotes = [...new Set(normalizedKit.map((item) => item.notes).filter(Boolean))];
+  const uniqueNames = [...new Set(normalizedKit.map((item) => item.name))];
+
+  return {
+    items: normalizedKit,
+    totalCarbs: round(totalCarbs, 1),
+    totalSodium: round(totalSodium, 0),
+    totalCalories: round(totalCalories, 0),
+    totalServings,
+    hasDualTransport,
+    hasHydrogel,
+    hasStandardSugar,
+    hasMixedHydrogelKit: hasHydrogel && hasStandardSugar,
+    uniqueNotes,
+    uniqueNames
+  };
+}
+
+function normalizeFuelPlanInput(fuelingInput) {
+  if (Array.isArray(fuelingInput)) {
+    return {
+      mode: "multiple",
+      fuelingKit: fuelingInput,
+      selectedFuel: null
+    };
+  }
+
+  if (fuelingInput && Array.isArray(fuelingInput.fuelingKit)) {
+    return {
+      mode: fuelingInput.mode === "single" ? "single" : "multiple",
+      fuelingKit: fuelingInput.fuelingKit,
+      selectedFuel: fuelingInput.selectedFuel ?? null
+    };
+  }
+
+  if (fuelingInput && fuelingInput.mode === "single" && fuelingInput.selectedFuel) {
+    return {
+      mode: "single",
+      fuelingKit: [],
+      selectedFuel: fuelingInput.selectedFuel
+    };
+  }
+
+  if (fuelingInput && typeof fuelingInput === "object" && "carbsPerServing" in fuelingInput) {
+    return {
+      mode: "single",
+      fuelingKit: [],
+      selectedFuel: fuelingInput
+    };
+  }
+
+  return {
+    mode: "multiple",
+    fuelingKit: [],
+    selectedFuel: null
+  };
+}
+
+function summarizeSingleFuelPlan(selectedFuel, actualServingsTotal) {
+  if (!selectedFuel || actualServingsTotal <= 0) {
+    return {
+      items: selectedFuel ? [{ ...selectedFuel, quantity: 0 }] : [],
+      totalCarbs: 0,
+      totalSodium: 0,
+      totalCalories: 0,
+      totalServings: 0,
+      hasDualTransport: selectedFuel?.transportType === "dual",
+      hasHydrogel: selectedFuel?.fuelType === "hydrogel",
+      hasStandardSugar: selectedFuel ? selectedFuel.fuelType !== "hydrogel" : false,
+      hasMixedHydrogelKit: false,
+      uniqueNotes: selectedFuel?.notes ? [selectedFuel.notes] : [],
+      uniqueNames: selectedFuel?.name ? [selectedFuel.name] : []
+    };
+  }
+
+  return {
+    items: [{ ...selectedFuel, quantity: actualServingsTotal }],
+    totalCarbs: round(selectedFuel.carbsPerServing * actualServingsTotal, 1),
+    totalSodium: round(selectedFuel.sodiumPerServing * actualServingsTotal, 0),
+    totalCalories: round((selectedFuel.calories ?? 0) * actualServingsTotal, 0),
+    totalServings: actualServingsTotal,
+    hasDualTransport: selectedFuel.transportType === "dual",
+    hasHydrogel: selectedFuel.fuelType === "hydrogel",
+    hasStandardSugar: selectedFuel.fuelType !== "hydrogel",
+    hasMixedHydrogelKit: false,
+    uniqueNotes: selectedFuel.notes ? [selectedFuel.notes] : [],
+    uniqueNames: selectedFuel.name ? [selectedFuel.name] : []
+  };
+}
+
+function getFuelKitAbsorptionCap(fuelSummary, gutToleranceGHr) {
+  const transportCap = fuelSummary.hasDualTransport ? 100 : 60;
+  return clamp(Math.min(gutToleranceGHr ?? transportCap, transportCap), 0, transportCap);
+}
+
+function buildFuelTimesInWindow(startMinute, endMinute, servingCount) {
+  if (servingCount <= 0) {
+    return [];
+  }
+
+  if (servingCount === 1) {
+    return [clamp(roundToNearest((startMinute + endMinute) / 2, 5), startMinute, endMinute)];
+  }
+
+  const times = [];
+  for (let index = 0; index < servingCount; index += 1) {
+    const rawMinute = startMinute + ((endMinute - startMinute) * (index + 1)) / (servingCount + 1);
+    const roundedMinute = clamp(roundToNearest(rawMinute, 5), startMinute, endMinute);
+    const previous = times.at(-1);
+    const safeMinute = previous && roundedMinute <= previous ? previous + 5 : roundedMinute;
+    times.push(Math.min(safeMinute, endMinute));
+  }
+  return times;
+}
+
+function buildKitFuelTimeline({ durationMinutes, targetCarbsHr, totalCarbs, mode, fuelingKit }) {
+  const fuelSummary = summarizeFuelingKit(fuelingKit);
+  const units = expandFuelingKit(fuelingKit).sort((left, right) => {
+    const priorityDifference =
+      (TIMELINE_TYPE_PRIORITY[left.fuelType] ?? 1) - (TIMELINE_TYPE_PRIORITY[right.fuelType] ?? 1);
+    if (priorityDifference !== 0) {
+      return priorityDifference;
+    }
+    return left.addedOrder - right.addedOrder;
+  });
+
+  if (mode === "none" || units.length === 0) {
+    return {
+      events: [],
+      actualCarbsTotal: 0,
+      actualCarbsHr: 0,
+      actualServingsTotal: 0,
+      totalSodium: 0,
+      timelineWarning: null
+    };
+  }
+
+  const earlyUnits = units.filter((unit) => unit.fuelType !== "hydrogel");
+  const lateUnits = units.filter((unit) => unit.fuelType === "hydrogel");
+  let timelineWarning = null;
+  let times = [];
+
+  if (fuelSummary.hasMixedHydrogelKit && earlyUnits.length && lateUnits.length) {
+    const earlyEnd = Math.max(20, Math.min(roundToNearest(durationMinutes * 0.45, 5), Math.max(durationMinutes - 30, 20)));
+    const lateStart = Math.max(earlyEnd + 20, roundToNearest(durationMinutes * 0.65, 5));
+    const lateEnd = Math.max(durationMinutes - 5, lateStart);
+
+    if (lateStart >= durationMinutes - 5) {
+      timelineWarning =
+        "This kit mixes hydrogels with standard sugars or solids, but the run is too short to keep them 20 to 30 minutes apart cleanly. Simplify the kit if your stomach is sensitive.";
+      times = buildFuelTimes(durationMinutes, units.length);
+    } else {
+      const earlyTimes = buildFuelTimesInWindow(15, earlyEnd, earlyUnits.length);
+      const lateTimes = buildFuelTimesInWindow(lateStart, lateEnd, lateUnits.length);
+      if (earlyTimes.length && lateTimes.length && lateTimes[0] - earlyTimes.at(-1) < 20) {
+        timelineWarning =
+          "This kit mixes hydrogels with standard sugars or solids, and the spacing is tighter than ideal. Keep those fuels 20 to 30 minutes apart when possible.";
+      }
+      times = [...earlyTimes, ...lateTimes];
+    }
+  } else {
+    times = buildFuelTimes(durationMinutes, units.length);
+  }
+
+  const events = units.map((unit, index) => ({
+    minute: times[index],
+    servings: 1,
+    carbs: unit.carbsPerServing,
+    sodium: unit.sodiumPerServing,
+    fuelType: unit.fuelType,
+    name: unit.name,
+    label: `1 serving of ${unit.name}`
+  }));
+
+  const durationHours = durationMinutes / 60;
+  return {
+    events,
+    actualCarbsTotal: fuelSummary.totalCarbs,
+    actualCarbsHr: durationHours > 0 ? round(fuelSummary.totalCarbs / durationHours, 1) : 0,
+    actualServingsTotal: fuelSummary.totalServings,
+    totalSodium: fuelSummary.totalSodium,
+    timelineWarning
+  };
+}
+
+function selectPreStartFuelItem(fuelingKit) {
+  return normalizeFuelingKit(fuelingKit)
+    .slice()
+    .sort((left, right) => {
+      const priorityDifference =
+        (PRESTART_TYPE_PRIORITY[left.fuelType] ?? 1) - (PRESTART_TYPE_PRIORITY[right.fuelType] ?? 1);
+      if (priorityDifference !== 0) {
+        return priorityDifference;
+      }
+      return left.addedOrder - right.addedOrder;
+    })[0] ?? null;
 }
 
 function alignHydrationWithFuelEvents(hydrationPlan, fuelTimeline, windowMinutes = 10) {
@@ -389,10 +642,14 @@ function buildWarnings({
   heatIndexC,
   bodyMassLossPercent,
   targetCarbsHr,
+  totalCarbsGoal,
   actualCarbsHr,
-  fuel,
+  actualCarbsTotal,
+  durationHours,
+  fuelSummary,
   acclimatizationDays,
-  targetFluidLHr
+  targetFluidLHr,
+  timelineWarning
 }) {
   const warnings = [];
 
@@ -425,17 +682,32 @@ function buildWarnings({
     });
   }
 
-  if (targetCarbsHr > 60 && fuel.transportType !== "dual") {
+  if (targetCarbsHr > 60 && !fuelSummary.hasDualTransport) {
     warnings.push({
       tone: "warn",
-      text: `${fuel.name} is not a dual-transport product. The app capped practical intake at 60 g/hr to protect the gut.`
+      text: "Your kit does not include a dual-transport carbohydrate source, so practical intake is capped closer to 60 g/hr."
     });
   }
 
-  if (targetCarbsHr > 0 && actualCarbsHr > targetCarbsHr + 10) {
+  if (fuelSummary.hasMixedHydrogelKit) {
     warnings.push({
       tone: "warn",
-      text: "Whole-gel scheduling overshoots the target a bit with this product. A denser gel may match the physiology more closely."
+      text: "This kit mixes hydrogels with standard sugars or solids. Keep those fuels separated instead of stacking them together."
+    });
+  }
+
+  const actualCarbsGoal = totalCarbsGoal || targetCarbsHr * durationHours;
+  if (actualCarbsGoal > 0 && actualCarbsTotal < actualCarbsGoal * 0.9) {
+    warnings.push({
+      tone: "warn",
+      text: `Your selected kit provides ${round(actualCarbsTotal, 0)} g of carbohydrate, but this run calls for about ${round(actualCarbsGoal, 0)} g. Add more fuel so the plan does not come up short.`
+    });
+  }
+
+  if ((actualCarbsGoal > 0 && actualCarbsTotal > actualCarbsGoal * 1.1) || (targetCarbsHr > 0 && actualCarbsHr > targetCarbsHr + 10)) {
+    warnings.push({
+      tone: "warn",
+      text: `Your selected kit delivers ${round(actualCarbsTotal, 0)} g of carbohydrate, which is above the practical target for this run and may increase GI risk. Remove an item if you want a tighter match.`
     });
   }
 
@@ -453,29 +725,61 @@ function buildWarnings({
     });
   }
 
+  if (timelineWarning) {
+    warnings.push({
+      tone: "warn",
+      text: timelineWarning
+    });
+  }
+
   return warnings;
 }
 
-export function buildRunPlan(profile, run, fuel) {
+export function buildRunPlan(profile, run, fuelingInput) {
   const durationMinutes = run.durationMinutes || estimateDurationMinutes(run);
   const durationHours = durationMinutes / 60;
   const heatIndexC = computeHeatIndexC(run.temperatureC, run.humidityPercent);
   const wbgtC = approximateWBGTC(run.temperatureC, run.humidityPercent);
   const heatCategory = getHeatCategory(heatIndexC);
+  const fuelPlanInput = normalizeFuelPlanInput(fuelingInput);
+  const initialFuelSummary =
+    fuelPlanInput.mode === "multiple"
+      ? summarizeFuelingKit(fuelPlanInput.fuelingKit)
+      : summarizeSingleFuelPlan(fuelPlanInput.selectedFuel, 0);
 
   const baseFueling = pickBaseCarbTarget(run.runType, durationMinutes);
   const requestedCarbsHr =
-    baseFueling.mode === "hourly" ? clampFuelByTransport(baseFueling.targetCarbsHr, fuel, profile.gutToleranceGHr) : 0;
+    baseFueling.mode === "hourly"
+      ? fuelPlanInput.mode === "multiple"
+        ? clamp(baseFueling.targetCarbsHr, 0, getFuelKitAbsorptionCap(initialFuelSummary, profile.gutToleranceGHr))
+        : clampFuelByTransport(baseFueling.targetCarbsHr, fuelPlanInput.selectedFuel, profile.gutToleranceGHr)
+      : 0;
   const totalCarbsGoal =
     baseFueling.mode === "fixed" ? baseFueling.totalCarbs : round(requestedCarbsHr * durationHours, 1);
-  const fuelTimeline = makeFuelTimeline({
-    durationMinutes,
-    targetCarbsHr: requestedCarbsHr,
-    totalCarbs: totalCarbsGoal,
-    mode: baseFueling.mode,
-    fuel
-  });
-  const preStartFuel = getPreStartFuelRecommendation(run.runType, durationMinutes, fuel);
+  const fuelTimeline =
+    fuelPlanInput.mode === "multiple"
+      ? buildKitFuelTimeline({
+          durationMinutes,
+          targetCarbsHr: requestedCarbsHr,
+          totalCarbs: totalCarbsGoal,
+          mode: baseFueling.mode,
+          fuelingKit: fuelPlanInput.fuelingKit
+        })
+      : makeFuelTimeline({
+          durationMinutes,
+          targetCarbsHr: requestedCarbsHr,
+          totalCarbs: totalCarbsGoal,
+          mode: baseFueling.mode,
+          fuel: fuelPlanInput.selectedFuel
+        });
+  const fuelSummary =
+    fuelPlanInput.mode === "multiple"
+      ? summarizeFuelingKit(fuelPlanInput.fuelingKit)
+      : summarizeSingleFuelPlan(fuelPlanInput.selectedFuel, fuelTimeline.actualServingsTotal);
+  const preStartFuel =
+    fuelPlanInput.mode === "multiple"
+      ? getPreStartFuelRecommendation(run.runType, durationMinutes, fuelPlanInput.fuelingKit)
+      : getPreStartFuelRecommendation(run.runType, durationMinutes, [fuelPlanInput.selectedFuel].filter(Boolean));
 
   const sodiumBase = SODIUM_BY_SWEATER[profile.sweatSaltiness] ?? SODIUM_BY_SWEATER.average;
   const heatSodiumModifier = heatCategory === "danger" || heatCategory === "very-high" ? 350 : heatCategory === "high" ? 200 : 0;
@@ -484,7 +788,8 @@ export function buildRunPlan(profile, run, fuel) {
 
   const targetFluidLHr = getGuidelineFluidTargetLHr(profile, run, heatIndexC, heatCategory, durationMinutes);
 
-  const fuelSodiumMgHr = durationHours > 0 ? round((fuelTimeline.actualServingsTotal * fuel.sodiumPerServing) / durationHours, 0) : 0;
+  const scheduledFuelSodiumMg = fuelTimeline.totalSodium;
+  const fuelSodiumMgHr = durationHours > 0 ? round(scheduledFuelSodiumMg / durationHours, 0) : 0;
   const externalSodiumMgHr = Math.max(round(targetSodiumMgHr - fuelSodiumMgHr, 0), 0);
   const rawTotalExternalSodiumMg = round(externalSodiumMgHr * durationHours, 0);
   const hydrationPlan = makeHydrationPlan({
@@ -508,13 +813,18 @@ export function buildRunPlan(profile, run, fuel) {
     heatIndexC,
     bodyMassLossPercent,
     targetCarbsHr: requestedCarbsHr,
+    totalCarbsGoal,
     actualCarbsHr: fuelTimeline.actualCarbsHr,
-    fuel,
+    actualCarbsTotal: fuelTimeline.actualCarbsTotal,
+    durationHours,
+    fuelSummary,
     acclimatizationDays: run.acclimatizationDays,
-    targetFluidLHr
+    targetFluidLHr,
+    timelineWarning: fuelTimeline.timelineWarning
   });
 
   return {
+    fuelPlanMode: fuelPlanInput.mode,
     durationMinutes: round(durationMinutes, 0),
     durationHours,
     distanceKm: round(distanceKm, 1),
@@ -527,7 +837,9 @@ export function buildRunPlan(profile, run, fuel) {
     totalCarbsGoal,
     targetSodiumMgHr,
     targetFluidLHr: round(targetFluidLHr, 2),
+    scheduledFuelSodiumMg,
     fuelSodiumMgHr,
+    fuelKitSummary: fuelSummary,
     externalSodiumMgHr: plannedExternalSodiumMgHr,
     totalExternalSodiumMg: alignedHydrationPlan.totalExternalSodiumMg,
     totalFluidL: round(alignedHydrationPlan.totalWaterMl / 1000, 2),
@@ -671,7 +983,7 @@ function mapEventsToRoxzones(events, roxzones, windowMinutes = 12) {
   });
 }
 
-function buildHyroxHydrationPlan(profile, durationMinutes, roxzones, fuelSodiumPerHour) {
+function buildHyroxHydrationPlan(profile, durationMinutes, roxzones, fuelSodiumTotal) {
   const durationHours = durationMinutes / 60;
   const baseSweatRate = Math.max(profile.sweatRateLHr, profile.sex === "male" ? 0.95 : 0.85);
   const targetFluidLHr = clamp(baseSweatRate * 0.75, 0.45, 0.85);
@@ -687,7 +999,7 @@ function buildHyroxHydrationPlan(profile, durationMinutes, roxzones, fuelSodiumP
   };
   const targetSodiumMgHr = sodiumBySweater[profile.sweatSaltiness] ?? sodiumBySweater.average;
   const totalSodiumGoal = round(targetSodiumMgHr * durationHours, 0);
-  const externalSodiumMg = Math.max(round(totalSodiumGoal - fuelSodiumPerHour * durationHours, 0), 0);
+  const externalSodiumMg = Math.max(round(totalSodiumGoal - fuelSodiumTotal, 0), 0);
   const sodiumPer500MlFlask =
     totalWaterMl > 0 ? roundToNearest((externalSodiumMg / totalWaterMl) * flaskVolumeMl, 25) : 0;
   const plannedExternalSodiumMg = round((sodiumPer500MlFlask / flaskVolumeMl) * totalWaterMl, 0);
@@ -717,7 +1029,92 @@ function buildHyroxHydrationPlan(profile, durationMinutes, roxzones, fuelSodiumP
   };
 }
 
-export function buildHyroxPlan(profile, settings, fuel) {
+function assignHyroxFuelEventsToRoxzones(remainingUnits, roxzones, predictedDurationMinutes) {
+  if (!remainingUnits.length) {
+    return [];
+  }
+
+  const preferredIndexSets = {
+    1: [3],
+    2: [3, 5],
+    3: [1, 3, 5],
+    4: [1, 3, 5, 7]
+  };
+  const preferredIndices = preferredIndexSets[remainingUnits.length] ?? [];
+  const preferredRoxzones = preferredIndices
+    .map((index) => roxzones[index])
+    .filter(Boolean);
+
+  if (preferredRoxzones.length === remainingUnits.length) {
+    return remainingUnits.map((unit, index) => ({
+      minute: preferredRoxzones[index].minute,
+      name: unit.name,
+      carbs: unit.carbsPerServing,
+      roxzoneLabel: preferredRoxzones[index].label,
+      stationName: preferredRoxzones[index].stationName
+    }));
+  }
+
+  const distributionTimes = buildFuelTimes(predictedDurationMinutes, remainingUnits.length);
+  return mapEventsToRoxzones(
+    remainingUnits.map((unit, index) => ({
+      minute: distributionTimes[index],
+      name: unit.name,
+      carbs: unit.carbsPerServing
+    })),
+    roxzones
+  );
+}
+
+function buildSingleFuelHyroxPlan(selectedFuel, predictedDurationMinutes, roxzones) {
+  if (!selectedFuel) {
+    return {
+      fuelEvents: [],
+      fuelSummary: summarizeSingleFuelPlan(null, 0)
+    };
+  }
+
+  let midRaceServings = 0;
+  if (predictedDurationMinutes >= 75 && predictedDurationMinutes < 90) {
+    midRaceServings = 1;
+  } else if (predictedDurationMinutes >= 90 && predictedDurationMinutes <= 120) {
+    midRaceServings = 2;
+  } else if (predictedDurationMinutes > 120) {
+    midRaceServings = 3;
+  }
+
+  const repeatedUnits = Array.from({ length: midRaceServings }, () => ({
+    ...selectedFuel,
+    name: selectedFuel.name,
+    carbsPerServing: selectedFuel.carbsPerServing
+  }));
+  const distributedEvents = assignHyroxFuelEventsToRoxzones(repeatedUnits, roxzones, predictedDurationMinutes);
+  const fuelEvents = [
+    {
+      minute: -15,
+      label:
+        predictedDurationMinutes < 75
+          ? `Take 1 serving of ${selectedFuel.name} 15 to 30 minutes before the start. Ideally this is a caffeine gel if you tolerate caffeine well, but avoid taking it too early while you are still waiting around.`
+          : `Take 1 serving of ${selectedFuel.name} 10 to 15 minutes before the start with a few mouthfuls of water. Avoid taking it too early while you are still standing around, or you risk a rebound blood-sugar dip on the line.`,
+      roxzoneLabel: "Pre-start"
+    }
+  ];
+
+  distributedEvents.forEach((event) => {
+    fuelEvents.push({
+      minute: event.minute,
+      label: `Take 1 serving of ${event.name}${event.roxzoneLabel ? ` during ${event.roxzoneLabel}` : ""}.`,
+      roxzoneLabel: event.roxzoneLabel
+    });
+  });
+
+  return {
+    fuelEvents,
+    fuelSummary: summarizeSingleFuelPlan(selectedFuel, 1 + midRaceServings)
+  };
+}
+
+export function buildHyroxPlan(profile, settings, fuelingInput) {
   const runLegMinutes = settings.runPaceMinPerKm;
   const transitionMinutes = settings.transitionSeconds / 60;
   const stationEstimates = settings.stationEstimates.map((station) => ({
@@ -775,6 +1172,7 @@ export function buildHyroxPlan(profile, settings, fuel) {
 
   const predictedDurationMinutes = round(cumulativeMinute, 0);
   const durationHours = predictedDurationMinutes / 60;
+  const fuelPlanInput = normalizeFuelPlanInput(fuelingInput);
   const carbLoadingRange = [round(profile.weightKg * 7, 0), round(profile.weightKg * 10, 0)];
   const raceMorningRange = [round(profile.weightKg * 1, 0), round(profile.weightKg * 4, 0)];
 
@@ -783,41 +1181,65 @@ export function buildHyroxPlan(profile, settings, fuel) {
     targetCarbsHr = predictedDurationMinutes > 105 ? 60 : predictedDurationMinutes > 90 ? 45 : 30;
   }
 
-  const fuelEvents = [
-    {
-      minute: -15,
-      label:
-        predictedDurationMinutes < 75
-          ? "Take one caffeine gel 15 to 30 minutes before the start if you tolerate caffeine well, but avoid taking it too early while you are still waiting around."
-          : "Take your first gel 10 to 15 minutes before the start with a few mouthfuls of water. Avoid taking it too early while you are still standing around, or you risk a rebound blood-sugar dip on the line.",
-      roxzoneLabel: "Pre-start"
+  let fuelEvents = [];
+  let fuelSummary;
+
+  if (fuelPlanInput.mode === "multiple") {
+    const expandedKit = expandFuelingKit(fuelPlanInput.fuelingKit).sort((left, right) => {
+      const priorityDifference =
+        (TIMELINE_TYPE_PRIORITY[left.fuelType] ?? 1) - (TIMELINE_TYPE_PRIORITY[right.fuelType] ?? 1);
+      if (priorityDifference !== 0) {
+        return priorityDifference;
+      }
+      return left.addedOrder - right.addedOrder;
+    });
+    const preStartItem = selectPreStartFuelItem(fuelPlanInput.fuelingKit);
+    const remainingUnits = [...expandedKit];
+    if (preStartItem) {
+      const preStartIndex = remainingUnits.findIndex((unit) => unit.name === preStartItem.name && unit.addedOrder === preStartItem.addedOrder);
+      if (preStartIndex >= 0) {
+        remainingUnits.splice(preStartIndex, 1);
+      }
     }
-  ];
 
-  if (predictedDurationMinutes >= 75) {
-    const midRaceRoxzone = roxzones[Math.min(3, roxzones.length - 1)];
-    fuelEvents.push({
-      minute: midRaceRoxzone.minute,
-      label: `Take a full serving during ${midRaceRoxzone.label}. This is the cleanest window around the 30 to 45-minute mark.`,
-      roxzoneLabel: midRaceRoxzone.label
+    const distributedEvents = assignHyroxFuelEventsToRoxzones(
+      remainingUnits,
+      roxzones,
+      predictedDurationMinutes
+    );
+    fuelEvents = [];
+
+    if (preStartItem) {
+      fuelEvents.push({
+        minute: -15,
+        label:
+          predictedDurationMinutes < 75
+            ? `Take 1 serving of ${preStartItem.name} 15 to 30 minutes before the start. Ideally this is a caffeine gel if you tolerate caffeine well, but avoid taking it too early while you are still waiting around.`
+            : `Take 1 serving of ${preStartItem.name} 10 to 15 minutes before the start with a few mouthfuls of water. Avoid taking it too early while you are still standing around, or you risk a rebound blood-sugar dip on the line.`,
+        roxzoneLabel: "Pre-start"
+      });
+    }
+
+    distributedEvents.forEach((event) => {
+      fuelEvents.push({
+        minute: event.minute,
+        label: `Take 1 serving of ${event.name}${event.roxzoneLabel ? ` during ${event.roxzoneLabel}` : ""}.`,
+        roxzoneLabel: event.roxzoneLabel
+      });
     });
+    fuelSummary = summarizeFuelingKit(fuelPlanInput.fuelingKit);
+  } else {
+    const singleFuelPlan = buildSingleFuelHyroxPlan(
+      fuelPlanInput.selectedFuel,
+      predictedDurationMinutes,
+      roxzones
+    );
+    fuelEvents = singleFuelPlan.fuelEvents;
+    fuelSummary = singleFuelPlan.fuelSummary;
   }
 
-  if (predictedDurationMinutes > 80) {
-    const lateOptions = [roxzones[5], roxzones[6], roxzones[7]].filter(Boolean);
-    const lateRaceRoxzone =
-      lateOptions.sort((left, right) => Math.abs(left.minute - 65) - Math.abs(right.minute - 65))[0] ??
-      roxzones.at(-1);
-    fuelEvents.push({
-      minute: lateRaceRoxzone.minute,
-      label: `Take another full serving during ${lateRaceRoxzone.label}, ideally before the final run-in or Wall Balls.`,
-      roxzoneLabel: lateRaceRoxzone.label
-    });
-  }
-
-  const actualCarbsTotal = fuelEvents.length * fuel.carbsPerServing;
-  const fuelSodiumPerHour = durationHours > 0 ? round((fuelEvents.length * fuel.sodiumPerServing) / durationHours, 0) : 0;
-  const hydrationPlan = buildHyroxHydrationPlan(profile, predictedDurationMinutes, roxzones, fuelSodiumPerHour);
+  const actualCarbsTotal = fuelSummary.totalCarbs;
+  const hydrationPlan = buildHyroxHydrationPlan(profile, predictedDurationMinutes, roxzones, fuelSummary.totalSodium);
   const projectedNetFluidLossL = Math.max(Math.max(profile.sweatRateLHr, 0.85) - hydrationPlan.targetFluidLHr, 0) * durationHours;
   const bodyMassLossPercent = (projectedNetFluidLossL / profile.weightKg) * 100;
 
@@ -842,7 +1264,30 @@ export function buildHyroxPlan(profile, settings, fuel) {
     });
   }
 
+  if (targetCarbsHr > 0) {
+    const totalTarget = round(targetCarbsHr * durationHours, 0);
+    if (actualCarbsTotal < totalTarget * 0.9) {
+      warnings.push({
+        tone: "warn",
+        text: `Your race kit provides ${round(actualCarbsTotal, 0)} g of carbohydrate, but this HYROX effort calls for about ${totalTarget} g. Add more items if you want a closer match.`
+      });
+    } else if (actualCarbsTotal > totalTarget * 1.1) {
+      warnings.push({
+        tone: "warn",
+        text: `Your race kit overshoots the practical carbohydrate target for this HYROX plan and may increase GI risk. Consider removing an item.`
+      });
+    }
+  }
+
+  if (fuelSummary.hasMixedHydrogelKit) {
+    warnings.push({
+      tone: "warn",
+      text: "This kit mixes hydrogels with standard sugars or solids. Keep those items separated rather than taking them together in the same Roxzone window."
+    });
+  }
+
   return {
+    fuelPlanMode: fuelPlanInput.mode,
     predictedDurationMinutes,
     durationHours,
     runTotalMinutes,
@@ -851,6 +1296,7 @@ export function buildHyroxPlan(profile, settings, fuel) {
     carbLoadingRange,
     raceMorningRange,
     targetCarbsHr,
+    fuelKitSummary: fuelSummary,
     actualCarbsTotal,
     actualCarbsHr: durationHours > 0 ? round(actualCarbsTotal / durationHours, 1) : 0,
     fuelEvents,

@@ -26,30 +26,23 @@ function assertClose(actual, expected, tolerance = 0.01) {
   );
 }
 
-const neversecondC30 = {
-  name: "Neversecond C30",
-  carbsPerServing: 30,
-  sodiumPerServing: 200,
-  transportType: "dual"
-};
+const fuelsByKey = Object.fromEntries(BUILT_IN_FUELS.map((fuel) => [fuel.key, fuel]));
 
-const sisGoIsotonic = {
-  name: "SiS GO Isotonic",
-  carbsPerServing: 22,
-  sodiumPerServing: 10,
-  transportType: "single"
-};
+const neversecondC30 = fuelsByKey["neversecond-c30"];
+const maurtenGel100 = fuelsByKey["maurten-gel-100"];
+const sisGoIsotonic = fuelsByKey["sis-go-isotonic"];
+const sisBetaFuel = fuelsByKey["sis-beta-fuel"];
 
-const sisBetaFuel = {
-  name: "SiS Beta Fuel",
-  carbsPerServing: 40,
-  sodiumPerServing: 30,
-  transportType: "dual"
-};
+function kitOf(...items) {
+  return items.map((item, index) => ({
+    ...item.fuel,
+    id: item.id ?? `fuel-${index + 1}`,
+    quantity: item.quantity ?? 1,
+    addedOrder: item.addedOrder ?? index + 1
+  }));
+}
 
 test("commercial gel constants match the current product database values", () => {
-  const fuelsByKey = Object.fromEntries(BUILT_IN_FUELS.map((fuel) => [fuel.key, fuel]));
-
   assert.equal(fuelsByKey["neversecond-c30"].carbsPerServing, 30);
   assert.equal(fuelsByKey["neversecond-c30"].sodiumPerServing, 200);
   assert.equal(fuelsByKey["sis-beta-fuel"].carbsPerServing, 40);
@@ -90,7 +83,7 @@ test("buildRunPlan prefers an explicit duration over pace-derived duration", () 
       humidityPercent: 58,
       acclimatizationDays: 8
     },
-    sisBetaFuel
+    kitOf({ fuel: sisBetaFuel, quantity: 3 })
   );
 
   assert.equal(plan.durationMinutes, 150);
@@ -122,7 +115,7 @@ test("short cool easy runs stay unfueled and do not require carried water", () =
       humidityPercent: 50,
       acclimatizationDays: 0
     },
-    neversecondC30
+    kitOf({ fuel: neversecondC30, quantity: 1 })
   );
 
   assert.equal(plan.durationMinutes, 25);
@@ -153,7 +146,7 @@ test("cool easy runs around an hour stay drink-to-thirst with optional carried e
       humidityPercent: 50,
       acclimatizationDays: 0
     },
-    neversecondC30
+    kitOf({ fuel: neversecondC30, quantity: 1 })
   );
 
   assert.equal(plan.durationMinutes, 72);
@@ -183,7 +176,7 @@ test("tempo sessions under 75 minutes stay unfueled while hydration remains sche
       humidityPercent: 55,
       acclimatizationDays: 0
     },
-    sisGoIsotonic
+    kitOf({ fuel: sisGoIsotonic, quantity: 1 })
   );
 
   assert.equal(plan.fuelingMode, "none");
@@ -204,7 +197,7 @@ test("tempo sessions under 75 minutes stay unfueled while hydration remains sche
   );
 });
 
-test("tempo sessions from 75 to 90 minutes still use fixed whole-serving fueling", () => {
+test("tempo sessions from 75 to 90 minutes use the supplied kit and align drinks to nearby fuel", () => {
   const profile = {
     sex: "male",
     weightKg: 70,
@@ -223,7 +216,7 @@ test("tempo sessions from 75 to 90 minutes still use fixed whole-serving fueling
       humidityPercent: 55,
       acclimatizationDays: 0
     },
-    sisGoIsotonic
+    kitOf({ fuel: sisGoIsotonic, quantity: 2 })
   );
 
   assert.equal(plan.durationMinutes, 80);
@@ -231,6 +224,7 @@ test("tempo sessions from 75 to 90 minutes still use fixed whole-serving fueling
   assert.equal(plan.totalCarbsGoal, 30);
   assert.ok(plan.rationale.includes("Runs beyond an hour benefit from steady exogenous carbohydrate support."));
   assert.equal(plan.fuelTimeline.actualServingsTotal, 2);
+  assert.equal(plan.fuelTimeline.actualCarbsTotal, 44);
   assert.deepEqual(
     plan.fuelTimeline.events.map((event) => event.minute),
     [25, 55]
@@ -246,6 +240,40 @@ test("tempo sessions from 75 to 90 minutes still use fixed whole-serving fueling
   );
   assert.equal(plan.totalExternalSodiumMg, 576);
   assert.equal(plan.hydrationPlan.sodiumPer500MlFlask, 400);
+});
+
+test("single-source running plans still auto-calculate full servings from one selected fuel", () => {
+  const plan = buildRunPlan(
+    {
+      sex: "male",
+      weightKg: 70,
+      sweatRateLHr: 1.0,
+      sweatSaltiness: "average",
+      gutToleranceGHr: 90
+    },
+    {
+      runType: "race",
+      distanceKm: 21.1,
+      paceMinPerKm: 4.5,
+      temperatureC: 20,
+      humidityPercent: 55,
+      acclimatizationDays: 10
+    },
+    {
+      mode: "single",
+      selectedFuel: sisBetaFuel
+    }
+  );
+
+  assert.equal(plan.fuelPlanMode, "single");
+  assert.equal(plan.fuelTimeline.actualServingsTotal, 3);
+  assert.equal(plan.fuelKitSummary.totalServings, 3);
+  assert.equal(plan.fuelKitSummary.totalCarbs, 120);
+  assert.equal(plan.scheduledFuelSodiumMg, 90);
+  assert.deepEqual(
+    plan.fuelTimeline.events.map((event) => event.minute),
+    [25, 45, 70]
+  );
 });
 
 test("hot long runs cap single-source carbs, increase sodium, and use a 15-minute drink rhythm", () => {
@@ -267,7 +295,7 @@ test("hot long runs cap single-source carbs, increase sodium, and use a 15-minut
       humidityPercent: 70,
       acclimatizationDays: 2
     },
-    sisGoIsotonic
+    kitOf({ fuel: sisGoIsotonic, quantity: 9 })
   );
 
   assert.equal(plan.heatCategory, "very-high");
@@ -288,7 +316,7 @@ test("hot long runs cap single-source carbs, increase sodium, and use a 15-minut
   assert.ok(plan.warnings.some((warning) => warning.text.includes("early in heat exposure")));
 });
 
-test("race fueling rounds up to full gels and preserves the overshoot warning", () => {
+test("race fueling keeps intra-run targets weight-independent while kit overshoot still warns", () => {
   const maleProfile = {
     sex: "male",
     weightKg: 70,
@@ -308,7 +336,7 @@ test("race fueling rounds up to full gels and preserves the overshoot warning", 
       humidityPercent: 55,
       acclimatizationDays: 10
     },
-    sisBetaFuel
+    kitOf({ fuel: sisBetaFuel, quantity: 3 })
   );
   const femalePlan = buildRunPlan(
     femaleProfile,
@@ -320,7 +348,7 @@ test("race fueling rounds up to full gels and preserves the overshoot warning", 
       humidityPercent: 55,
       acclimatizationDays: 10
     },
-    sisBetaFuel
+    kitOf({ fuel: sisBetaFuel, quantity: 3 })
   );
 
   assert.equal(malePlan.requestedCarbsHr, 65);
@@ -333,7 +361,7 @@ test("race fueling rounds up to full gels and preserves the overshoot warning", 
     malePlan.fuelTimeline.events.map((event) => event.minute),
     [25, 45, 70]
   );
-  assert.ok(malePlan.warnings.some((warning) => warning.text.includes("Whole-gel scheduling overshoots")));
+  assert.ok(malePlan.warnings.some((warning) => warning.text.includes("may increase GI risk")));
   assert.equal(malePlan.totalWaterMl, 1050);
   assert.ok(femalePlan.totalWaterMl < malePlan.totalWaterMl);
 });
@@ -355,7 +383,7 @@ test("intra-run carbohydrate targets stay the same across body weights", () => {
       humidityPercent: 55,
       acclimatizationDays: 10
     },
-    sisBetaFuel
+    kitOf({ fuel: sisBetaFuel, quantity: 3 })
   );
   const heavierPlan = buildRunPlan(
     {
@@ -373,7 +401,7 @@ test("intra-run carbohydrate targets stay the same across body weights", () => {
       humidityPercent: 55,
       acclimatizationDays: 10
     },
-    sisBetaFuel
+    kitOf({ fuel: sisBetaFuel, quantity: 3 })
   );
 
   assert.equal(lighterPlan.requestedCarbsHr, heavierPlan.requestedCarbsHr);
@@ -489,7 +517,7 @@ test("HYROX plans keep the mid-race roxzone mapping and pre-race loading guidanc
     ]
   };
 
-  const plan = buildHyroxPlan(profile, settings, neversecondC30);
+  const plan = buildHyroxPlan(profile, settings, kitOf({ fuel: neversecondC30, quantity: 2 }));
 
   assert.equal(plan.predictedDurationMinutes, 76);
   assert.equal(plan.targetCarbsHr, 30);
@@ -544,7 +572,7 @@ test("HYROX keeps the short-race and long-race fueling branches stable", () => {
         { name: "Wall Balls", minutes: 4.2 }
       ]
     },
-    neversecondC30
+    kitOf({ fuel: neversecondC30, quantity: 1 })
   );
 
   const longPlan = buildHyroxPlan(
@@ -568,7 +596,7 @@ test("HYROX keeps the short-race and long-race fueling branches stable", () => {
         { name: "Wall Balls", minutes: 7.0 }
       ]
     },
-    sisBetaFuel
+    kitOf({ fuel: sisBetaFuel, quantity: 3 })
   );
 
   assert.equal(shortPlan.predictedDurationMinutes, 69);
@@ -591,4 +619,81 @@ test("HYROX keeps the short-race and long-race fueling branches stable", () => {
   assert.equal(longPlan.hydrationPlan.totalWaterMl, 1400);
   assert.equal(longPlan.hydrationPlan.totalExternalSodiumMg, 1330);
   assert.ok(longPlan.warnings.some((warning) => warning.text.includes("mid-race fueling becomes much more important")));
+});
+
+test("single-source HYROX plans still auto-place pre-start and mid-race servings", () => {
+  const plan = buildHyroxPlan(
+    {
+      sex: "male",
+      weightKg: 80,
+      sweatRateLHr: 1.3,
+      sweatSaltiness: "salty"
+    },
+    {
+      runPaceMinPerKm: 6.5,
+      transitionSeconds: 45,
+      stationEstimates: [
+        { name: "SkiErg", minutes: 5.8 },
+        { name: "Sled Push", minutes: 4.5 },
+        { name: "Sled Pull", minutes: 4.5 },
+        { name: "Burpee Broad Jumps", minutes: 6.0 },
+        { name: "Row", minutes: 5.2 },
+        { name: "Farmers Carry", minutes: 3.0 },
+        { name: "Sandbag Lunges", minutes: 5.6 },
+        { name: "Wall Balls", minutes: 7.0 }
+      ]
+    },
+    {
+      mode: "single",
+      selectedFuel: sisBetaFuel
+    }
+  );
+
+  assert.equal(plan.fuelPlanMode, "single");
+  assert.equal(plan.fuelKitSummary.totalServings, 3);
+  assert.equal(plan.actualCarbsTotal, 120);
+  assert.deepEqual(
+    plan.fuelEvents.map((event) => [event.minute, event.roxzoneLabel]),
+    [
+      [-15, "Pre-start"],
+      [50, "Roxzone after Burpee Broad Jumps"],
+      [73, "Roxzone after Farmers Carry"]
+    ]
+  );
+});
+
+test("mixed hydrogel kits stay separated in the timeline and trigger a stomach-safety warning", () => {
+  const plan = buildRunPlan(
+    {
+      sex: "female",
+      weightKg: 62,
+      sweatRateLHr: 0.9,
+      sweatSaltiness: "average",
+      gutToleranceGHr: 90
+    },
+    {
+      runType: "long",
+      distanceKm: 28,
+      paceMinPerKm: 6,
+      temperatureC: 18,
+      humidityPercent: 55,
+      acclimatizationDays: 6
+    },
+    kitOf(
+      { fuel: sisBetaFuel, quantity: 2, addedOrder: 1 },
+      { fuel: maurtenGel100, quantity: 2, addedOrder: 2 }
+    )
+  );
+
+  assert.equal(plan.fuelKitSummary.hasMixedHydrogelKit, true);
+  assert.deepEqual(
+    plan.fuelTimeline.events.map((event) => event.fuelType),
+    ["standard-gel", "standard-gel", "hydrogel", "hydrogel"]
+  );
+  assert.ok(plan.fuelTimeline.events[2].minute - plan.fuelTimeline.events[1].minute >= 20);
+  assert.ok(
+    plan.warnings.some((warning) =>
+      warning.text.includes("mixes hydrogels with standard sugars or solids")
+    )
+  );
 });

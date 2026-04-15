@@ -458,6 +458,40 @@ fieldset.fuel-panel legend {
   line-height: 1.5;
 }
 
+.kit-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.kit-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.kit-quantity-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kit-stepper-button {
+  min-width: 36px;
+  padding: 6px 10px;
+}
+
+.kit-quantity-value {
+  min-width: 26px;
+  text-align: center;
+  font-weight: 800;
+  color: #ffffff;
+}
+
 input[readonly] {
   background: rgba(35, 178, 255, 0.12);
   color: #8fd9ff;
